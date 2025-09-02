@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import StationList from "@/components/StationList";
-import Player from "@/components/Player";
+import StationList from "../components/StationList";
+import Player from "../components/Player";
 
 type Station = {
   stationuuid: string;
@@ -16,7 +16,7 @@ type Station = {
   bitrate: number;
 };
 
-const PRESET_TAGS = ["pop","news","jazz","quran","k-pop","classical","indonesia","japan"];
+const PRESET_TAGS = ["pop", "news", "jazz", "quran", "k-pop", "classical", "indonesia", "japan"];
 
 export default function Home() {
   const [q, setQ] = useState("");
@@ -36,12 +36,14 @@ export default function Home() {
     } catch {}
   }, []);
 
-  const saveFavs = (obj:Record<string,boolean>) => {
+  const saveFavs = (obj: Record<string, boolean>) => {
     setFavorites(obj);
-    try { localStorage.setItem("fabaro_favs", JSON.stringify(obj)); } catch {}
+    try {
+      localStorage.setItem("fabaro_favs", JSON.stringify(obj));
+    } catch {}
   };
 
-  const toggleFav = (s:Station) => {
+  const toggleFav = (s: Station) => {
     const obj = { ...favorites };
     obj[s.stationuuid] = !obj[s.stationuuid];
     saveFavs(obj);
@@ -59,28 +61,41 @@ export default function Home() {
     setLoading(false);
   };
 
-  useEffect(() => { fetchStations(); }, []);
+  useEffect(() => {
+    fetchStations();
+  }, []);
 
-// basic analytics crash + perf
-useEffect(() => {
-  const onErr = (e:any) => {
-    try { fetch("/api/analytics", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({evt:"error", msg: e?.message||String(e)})}); } catch {}
-  };
-  const onRej = (e:any) => {
-    try { fetch("/api/analytics", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({evt:"unhandledrejection", msg: String(e?.reason||e)})}); } catch {}
-  };
-  window.addEventListener("error", onErr);
-  window.addEventListener("unhandledrejection", onRej);
-  return () => {
-    window.removeEventListener("error", onErr);
-    window.removeEventListener("unhandledrejection", onRej);
-  };
-}, []);
-
+  // basic analytics crash + perf
+  useEffect(() => {
+    const onErr = (e: any) => {
+      try {
+        fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ evt: "error", msg: e?.message || String(e) }),
+        });
+      } catch {}
+    };
+    const onRej = (e: any) => {
+      try {
+        fetch("/api/analytics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ evt: "unhandledrejection", msg: String(e?.reason || e) }),
+        });
+      } catch {}
+    };
+    window.addEventListener("error", onErr);
+    window.addEventListener("unhandledrejection", onRej);
+    return () => {
+      window.removeEventListener("error", onErr);
+      window.removeEventListener("unhandledrejection", onRej);
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     if (!showFavs) return stations;
-    return stations.filter(s => favorites[s.stationuuid]);
+    return stations.filter((s) => favorites[s.stationuuid]);
   }, [stations, favorites, showFavs]);
 
   return (
@@ -94,46 +109,129 @@ useEffect(() => {
         <input
           className="flex-1 min-w-[220px] bg-neutral-900 rounded px-3 py-2 outline-none"
           placeholder="Cari stasiun/genre (mis. jazz, news, quran, k-pop)…"
-          value={q} onChange={e=>setQ(e.target.value)}
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
         />
         <input
           className="w-48 bg-neutral-900 rounded px-3 py-2 outline-none"
           placeholder="Negara (mis. Indonesia, Japan)"
-          value={country} onChange={e=>setCountry(e.target.value)}
+          value={country}
+          onChange={(e) => setCountry(e.target.value)}
         />
         <select
           className="w-40 bg-neutral-900 rounded px-3 py-2 outline-none"
-          value={tag} onChange={e=>setTag(e.target.value)}
+          value={tag}
+          onChange={(e) => setTag(e.target.value)}
         >
           <option value="">Genre</option>
-          {PRESET_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+          {PRESET_TAGS.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
         </select>
+        <button onClick={fetchStations} className="px-4 py-2 rounded bg-white text-black font-medium">
+          Cari
+        </button>
         <button
-          onClick={fetchStations}
-          className="px-4 py-2 rounded bg-white text-black font-medium"
-        >Cari</button>
-        <button
-          onClick={()=>setShowFavs(v=>!v)}
-          className={"px-4 py-2 rounded font-medium " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}
-        >Favorit</button>
+          onClick={() => setShowFavs((v) => !v)}
+          className={
+            "px-4 py-2 rounded font-medium " +
+            (showFavs ? "bg-yellow-300 text-black" : "bg-neutral-800")
+          }
+        >
+          Favorit
+        </button>
       </div>
 
       {/* Curated quick presets */}
       <div className="flex gap-2 flex-wrap text-sm">
-        <button onClick={()=>{setCountry("Indonesia"); setTag(""); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Top Indonesia</button>
-        <button onClick={()=>{setCountry(""); setTag("news"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Global News</button>
-        <button onClick={()=>{setCountry(""); setTag("quran"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Religi: Quran</button>
-        <button onClick={()=>{setCountry("Japan"); setTag("j-pop"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">J-Pop</button>
-        <button onClick={()=>{setCountry("South Korea"); setTag("k-pop"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">K-Pop</button>
-        <button onClick={()=>{setCountry(""); setTag("jazz"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Jazz</button>
-        <button onClick={()=>{setCountry(""); setTag("classical"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Classical</button>
+        <button
+          onClick={() => {
+            setCountry("Indonesia");
+            setTag("");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          Top Indonesia
+        </button>
+        <button
+          onClick={() => {
+            setCountry("");
+            setTag("news");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          Global News
+        </button>
+        <button
+          onClick={() => {
+            setCountry("");
+            setTag("quran");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          Religi: Quran
+        </button>
+        <button
+          onClick={() => {
+            setCountry("Japan");
+            setTag("j-pop");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          J-Pop
+        </button>
+        <button
+          onClick={() => {
+            setCountry("South Korea");
+            setTag("k-pop");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          K-Pop
+        </button>
+        <button
+          onClick={() => {
+            setCountry("");
+            setTag("jazz");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          Jazz
+        </button>
+        <button
+          onClick={() => {
+            setCountry("");
+            setTag("classical");
+            setQ("");
+            fetchStations();
+          }}
+          className="px-3 py-1 rounded bg-neutral-800"
+        >
+          Classical
+        </button>
       </div>
 
       <Player station={current} />
 
-
-      {loading ? <p>Memuat…</p> :
-        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />}
+      {loading ? (
+        <p>Memuat…</p>
+      ) : (
+        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />
+      )}
     </main>
   );
 }
