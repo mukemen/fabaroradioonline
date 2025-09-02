@@ -1,17 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
-
 type Station = any;
 
 export default function Player({ station }: { station: Station|null }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [err, setErr] = useState<string>("");
   const [now, setNow] = useState<string>("");
-  const [sleepMin, setSleepMin] = useState<number>(0);
   const [expanded, setExpanded] = useState<boolean>(false);
-
-  const sleepTimer = useRef<NodeJS.Timeout|null>(null);
   const retryTimer = useRef<NodeJS.Timeout|null>(null);
   const hlsRef = useRef<Hls|null>(null);
   const usedProxyRef = useRef<boolean>(false);
@@ -20,29 +16,16 @@ export default function Player({ station }: { station: Station|null }) {
     typeof window !== "undefined" &&
     window.location.protocol === "https:" &&
     u?.startsWith("http://");
-
   const buildSrc = (u: string, forceProxy = false) =>
     (forceProxy || needsProxy(u)) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
 
-  // Init/Play
   useEffect(() => {
     setErr(""); setNow(""); usedProxyRef.current = false;
     const audio = audioRef.current;
     if (!audio || !station) return;
 
     const raw = station.url_resolved || station.url || "";
-    let currentSrc = buildSrc(raw);
-
-    // analytics
-    fetch("/api/analytics", {
-      method: "POST",
-      headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({evt:"play", name: station.name, url: raw})
-    }).catch(()=>{});
-
     const playDirect = () => audio.play().catch(()=>{});
-
-    // Cleanup helper
     const cleanup = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
 
     const tryPlay = (src: string) => {
@@ -63,25 +46,20 @@ export default function Player({ station }: { station: Station|null }) {
     };
 
     const fallbackToProxy = () => {
-      if (usedProxyRef.current) {
-        setErr("Gagal memutar (CORS/geo-block/URL rusak).");
-        return;
-      }
+      if (usedProxyRef.current) { setErr("Gagal memutar (CORS/geo-block/URL rusak)."); return; }
       usedProxyRef.current = true;
       setErr("Mencoba mode proxy…");
       const proxied = buildSrc(raw, true);
-      // debounce sedikit supaya tidak loop cepat
       if (retryTimer.current) clearTimeout(retryTimer.current);
       retryTimer.current = setTimeout(() => tryPlay(proxied), 300);
     };
 
-    tryPlay(currentSrc);
+    tryPlay(buildSrc(raw));
     return cleanup;
   }, [station]);
 
-  // Now Playing polling (ICY)
   useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
+    let t: NodeJS.Timeout | null = null;
     const pull = async () => {
       if (!station) return;
       try {
@@ -92,21 +70,10 @@ export default function Player({ station }: { station: Station|null }) {
         if (j && j.title) setNow(j.title);
       } catch {}
     };
-    pull();
-    timer = setInterval(pull, 15000);
-    return () => { if (timer) clearInterval(timer); };
+    pull(); t = setInterval(pull, 15000);
+    return () => { if (t) clearInterval(t); };
   }, [station]);
 
-  // Sleep timer
-  useEffect(() => {
-    if (sleepTimer.current) { clearTimeout(sleepTimer.current); sleepTimer.current = null; }
-    if (sleepMin > 0 && audioRef.current) {
-      sleepTimer.current = setTimeout(() => { audioRef.current?.pause(); }, sleepMin * 60 * 1000);
-    }
-    return () => { if (sleepTimer.current) clearTimeout(sleepTimer.current); };
-  }, [sleepMin]);
-
-  // UI (mini player + sheet)
   return (
     <>
       {expanded && station && (
@@ -120,13 +87,8 @@ export default function Player({ station }: { station: Station|null }) {
             {now && <div className="text-sm text-green-300">Now Playing: {now}</div>}
             {err && <div className="text-red-400 text-sm">{err}</div>}
             <audio ref={audioRef} controls className="w-full" />
-            <div className="flex items-center gap-2 text-sm">
-              <label className="text-neutral-400">Sleep (menit)</label>
-              <input type="number" min={0} max={180} value={sleepMin}
-                     onChange={(e)=>setSleepMin(parseInt(e.target.value||"0"))}
-                     className="w-24 bg-neutral-800 rounded px-2 py-2 outline-none"/>
-              <button onClick={()=>setSleepMin(0)} className="px-3 py-2 rounded bg-white text-black">Reset</button>
-              <button onClick={()=>setExpanded(false)} className="ml-auto px-3 py-2 rounded bg-neutral-800">Tutup</button>
+            <div className="flex justify-end">
+              <button onClick={()=>setExpanded(false)} className="px-3 py-2 rounded bg-neutral-800">Tutup</button>
             </div>
           </div>
         </div>
@@ -154,7 +116,6 @@ export default function Player({ station }: { station: Station|null }) {
         </div>
       </div>
 
-      {/* audio tersembunyi agar tetap play saat sheet ditutup */}
       <audio ref={audioRef} className="hidden" />
     </>
   );
