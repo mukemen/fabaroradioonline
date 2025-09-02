@@ -16,7 +16,7 @@ type Station = {
   bitrate: number;
 };
 
-const PRESET_TAGS = ["pop", "news", "jazz", "quran", "k-pop", "classical", "indonesia", "japan"];
+const PRESET_TAGS = ["pop","news","jazz","quran","k-pop","classical","indonesia","japan"];
 
 export default function Home() {
   const [q, setQ] = useState("");
@@ -29,10 +29,7 @@ export default function Home() {
   const [showFavs, setShowFavs] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem("fabaro_favs");
-      if (raw) setFavorites(JSON.parse(raw));
-    } catch {}
+    try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
   }, []);
 
   const saveFavs = (obj: Record<string, boolean>) => {
@@ -60,29 +57,11 @@ export default function Home() {
 
   useEffect(() => { fetchStations(); }, []);
 
-  // analytics ringan
-  useEffect(() => {
-    const onErr = (e: any) => {
-      fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evt: "error", msg: e?.message || String(e) }) }).catch(()=>{});
-    };
-    const onRej = (e: any) => {
-      fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ evt: "unhandledrejection", msg: String(e?.reason || e) }) }).catch(()=>{});
-    };
-    window.addEventListener("error", onErr);
-    window.addEventListener("unhandledrejection", onRej);
-    return () => {
-      window.removeEventListener("error", onErr);
-      window.removeEventListener("unhandledrejection", onRej);
-    };
-  }, []);
-
-  const filtered = useMemo(() => {
-    if (!showFavs) return stations;
-    return stations.filter(s => favorites[s.stationuuid]);
-  }, [stations, favorites, showFavs]);
+  const filtered = useMemo(() => (showFavs ? stations.filter(s => favorites[s.stationuuid]) : stations),
+    [stations, favorites, showFavs]);
 
   return (
-    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-28" /* pb-28 for mini-player space */>
+    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-28">
       <header className="flex items-center gap-3">
         <img src="/logo.png" alt="FABARO" className="w-10 h-10" />
         <div>
@@ -92,35 +71,25 @@ export default function Home() {
       </header>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <input
-          className="input flex-1"
-          placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
-          value={q} onChange={(e)=>setQ(e.target.value)}
-        />
+        <input className="input flex-1" placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
+               value={q} onChange={(e)=>setQ(e.target.value)} />
         <div className="flex gap-2">
-          <input
-            className="input w-[48vw] max-w-[220px]"
-            placeholder="Negara (Indonesia, Japan)"
-            value={country} onChange={(e)=>setCountry(e.target.value)}
-          />
-          <select
-            className="input w-[36vw] max-w-[160px]"
-            value={tag} onChange={(e)=>setTag(e.target.value)}
-          >
+          <input className="input w-[48vw] max-w-[220px]" placeholder="Negara (Indonesia, Japan)"
+                 value={country} onChange={(e)=>setCountry(e.target.value)} />
+          <select className="input w-[36vw] max-w-[160px]" value={tag} onChange={(e)=>setTag(e.target.value)}>
             <option value="">Genre</option>
             {PRESET_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
         <div className="flex gap-2">
           <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
-          <button
-            onClick={()=>setShowFavs(v=>!v)}
-            className={"button " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}
-          >Favorit</button>
+          <button onClick={()=>setShowFavs(v=>!v)}
+                  className={"button " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}>
+            Favorit
+          </button>
         </div>
       </div>
 
-      {/* Preset kurasi cepat */}
       <div className="flex gap-2 flex-wrap text-sm">
         <button onClick={()=>{setCountry("Indonesia"); setTag(""); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
         <button onClick={()=>{setCountry(""); setTag("news"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
@@ -131,10 +100,8 @@ export default function Home() {
         <button onClick={()=>{setCountry(""); setTag("classical"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Classical</button>
       </div>
 
-      {/* List & Mini Player (fixed di bawah) */}
       {loading ? <p>Memuat…</p> :
-        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />
-      }
+        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />}
 
       <Player station={current} />
     </main>
