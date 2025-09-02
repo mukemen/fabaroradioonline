@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Hls from "hls.js";
+
 type Station = any;
 
 export default function Player({ station }: { station: Station|null }) {
@@ -100,23 +101,4 @@ export default function Player({ station }: { station: Station|null }) {
             {station ? (
               <div className="flex items-center gap-3">
                 <img src={station.favicon || "/icon-192.png"} alt="" className="w-8 h-8 rounded"
-                     onError={(e:any)=>{e.currentTarget.src="/icon-192.png"}} />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate">{station.name}</div>
-                  <div className="text-xs text-neutral-400 truncate">{now || station.country}</div>
-                </div>
-                <button onClick={()=>setExpanded(true)} className="ml-auto px-3 py-2 rounded-lg bg-white text-black text-sm">
-                  Buka Player
-                </button>
-              </div>
-            ) : (
-              <div className="text-center text-sm text-neutral-400">Pilih stasiun untuk mulai memutar</div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <audio ref={audioRef} className="hidden" />
-    </>
-  );
-}
+                     onError={(e:a
