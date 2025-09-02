@@ -82,52 +82,61 @@ export default function Home() {
   }, [stations, favorites, showFavs]);
 
   return (
-    <main className="max-w-5xl mx-auto p-4 space-y-4">
-      <div className="flex items-center gap-3">
+    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-28" /* pb-28 for mini-player space */>
+      <header className="flex items-center gap-3">
         <img src="/logo.png" alt="FABARO" className="w-10 h-10" />
-        <h1 className="text-2xl font-semibold">FABARO Radio Online</h1>
-      </div>
+        <div>
+          <h1 className="text-2xl font-semibold leading-tight">FABARO Radio Online</h1>
+          <p className="text-sm text-neutral-400">Streaming radio dunia & Indonesia</p>
+        </div>
+      </header>
 
-      <div className="flex gap-2 flex-wrap">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         <input
-          className="flex-1 min-w-[220px] bg-neutral-900 rounded px-3 py-2 outline-none"
-          placeholder="Cari stasiun/genre (mis. jazz, news, quran, k-pop)…"
+          className="input flex-1"
+          placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
           value={q} onChange={(e)=>setQ(e.target.value)}
         />
-        <input
-          className="w-48 bg-neutral-900 rounded px-3 py-2 outline-none"
-          placeholder="Negara (mis. Indonesia, Japan)"
-          value={country} onChange={(e)=>setCountry(e.target.value)}
-        />
-        <select
-          className="w-40 bg-neutral-900 rounded px-3 py-2 outline-none"
-          value={tag} onChange={(e)=>setTag(e.target.value)}
-        >
-          <option value="">Genre</option>
-          {PRESET_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
-        </select>
-        <button onClick={fetchStations} className="px-4 py-2 rounded bg-white text-black font-medium">Cari</button>
-        <button
-          onClick={()=>setShowFavs(v=>!v)}
-          className={"px-4 py-2 rounded font-medium " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}
-        >Favorit</button>
+        <div className="flex gap-2">
+          <input
+            className="input w-[48vw] max-w-[220px]"
+            placeholder="Negara (Indonesia, Japan)"
+            value={country} onChange={(e)=>setCountry(e.target.value)}
+          />
+          <select
+            className="input w-[36vw] max-w-[160px]"
+            value={tag} onChange={(e)=>setTag(e.target.value)}
+          >
+            <option value="">Genre</option>
+            {PRESET_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
+          <button
+            onClick={()=>setShowFavs(v=>!v)}
+            className={"button " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}
+          >Favorit</button>
+        </div>
       </div>
 
       {/* Preset kurasi cepat */}
       <div className="flex gap-2 flex-wrap text-sm">
-        <button onClick={()=>{setCountry("Indonesia"); setTag(""); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Top Indonesia</button>
-        <button onClick={()=>{setCountry(""); setTag("news"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Global News</button>
-        <button onClick={()=>{setCountry(""); setTag("quran"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Religi: Quran</button>
-        <button onClick={()=>{setCountry("Japan"); setTag("j-pop"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">J-Pop</button>
-        <button onClick={()=>{setCountry("South Korea"); setTag("k-pop"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">K-Pop</button>
-        <button onClick={()=>{setCountry(""); setTag("jazz"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Jazz</button>
-        <button onClick={()=>{setCountry(""); setTag("classical"); setQ(""); fetchStations();}} className="px-3 py-1 rounded bg-neutral-800">Classical</button>
+        <button onClick={()=>{setCountry("Indonesia"); setTag(""); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
+        <button onClick={()=>{setCountry(""); setTag("news"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
+        <button onClick={()=>{setCountry(""); setTag("quran"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Religi: Quran</button>
+        <button onClick={()=>{setCountry("Japan"); setTag("j-pop"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">J-Pop</button>
+        <button onClick={()=>{setCountry("South Korea"); setTag("k-pop"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">K-Pop</button>
+        <button onClick={()=>{setCountry(""); setTag("jazz"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Jazz</button>
+        <button onClick={()=>{setCountry(""); setTag("classical"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Classical</button>
       </div>
 
-      <Player station={current} />
-
+      {/* List & Mini Player (fixed di bawah) */}
       {loading ? <p>Memuat…</p> :
-        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />}
+        <StationList stations={filtered} onPlay={setCurrent} toggleFav={toggleFav} favorites={favorites} />
+      }
+
+      <Player station={current} />
     </main>
   );
 }
