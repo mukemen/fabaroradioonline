@@ -1,5 +1,31 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Mobile-first tweaks */
 html, body { height: 100%; }
-body { @apply bg-black text-white; }
+body { @apply bg-black text-white antialiased; }
+
+/* Safe area for iOS notch */
+:root {
+  --safe-top: env(safe-area-inset-top);
+  --safe-bottom: env(safe-area-inset-bottom);
+}
+
+/* Nice tap targets */
+.button {
+  @apply px-4 py-3 rounded-lg font-medium;
+}
+
+/* Cards */
+.card {
+  @apply bg-neutral-900 rounded-2xl p-4;
+}
+
+/* Inputs */
+.input {
+  @apply bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500;
+}
+
+/* Hide default outline on buttons and inputs when tapped */
+button:focus { outline: none; }
