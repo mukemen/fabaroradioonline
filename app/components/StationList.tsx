@@ -14,7 +14,8 @@ export default function StationList({
       {stations.map((s: any) => (
         <div key={s.stationuuid} className="bg-neutral-900 rounded-2xl p-3">
           <div className="flex items-center gap-3">
-            <div className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-neutral-800">
+            {/* thumbnail responsif: lebih kecil di HP, 64px di md+ */}
+            <div className="shrink-0 w-14 h-14 md:w-16 md:h-16 rounded-xl overflow-hidden bg-neutral-800">
               <img
                 src={s.favicon || "/icon-192.png"}
                 alt=""
