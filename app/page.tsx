@@ -1,11 +1,44 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import StationList from "./components/StationList";
 import Player from "./components/Player";
 import RegisterSW from "./components/RegisterSW";
 import InstallPrompt from "./components/InstallPrompt";
 import InstallButton from "./components/InstallButton";
+
+// ====== DATA: GENRE & NEGARA (seperti versi sebelumnya) ======
+const GENRES = [
+  "top 40","hits","pop","rock","alternative","indie","metal","punk",
+  "hip-hop","rap","r&b","soul","dance","edm","house","trance","techno",
+  "k-pop","j-pop","mandopop","latin","reggaeton","salsa","bachata",
+  "afrobeats","reggae","ska","country","folk","world","bollywood",
+  "jazz","smooth jazz","blues","classical","opera","soundtrack",
+  "lofi","chillout","ambient","new age",
+  "oldies","70s","80s","90s","00s",
+  "news","talk","business","sports","weather","traffic","comedy","education","kids",
+  "quran","religion","gospel","christian","islamic"
+];
+
+const COUNTRIES = [
+  // Asia
+  "Indonesia","Malaysia","Singapore","Brunei","Thailand","Vietnam","Philippines","Myanmar","Cambodia","Laos",
+  "Japan","South Korea","China","Taiwan","Hong Kong","Mongolia",
+  "India","Pakistan","Bangladesh","Sri Lanka","Nepal",
+  "United Arab Emirates","Saudi Arabia","Qatar","Kuwait","Bahrain","Oman","Turkey","Iran","Iraq","Israel","Jordan","Lebanon","Egypt",
+  // Eropa
+  "United Kingdom","Ireland","France","Germany","Netherlands","Belgium","Luxembourg","Switzerland","Austria",
+  "Italy","Spain","Portugal","Norway","Sweden","Finland","Denmark","Iceland",
+  "Poland","Czech Republic","Slovakia","Hungary","Romania","Bulgaria","Greece","Albania","North Macedonia",
+  "Serbia","Bosnia and Herzegovina","Croatia","Slovenia","Montenegro",
+  "Lithuania","Latvia","Estonia","Ukraine","Russia","Belarus","Georgia","Armenia","Azerbaijan",
+  // Amerika
+  "United States Of America","Canada","Mexico","Brazil","Argentina","Chile","Peru","Colombia","Venezuela","Uruguay","Paraguay","Bolivia","Ecuador","Guatemala","Costa Rica","Panama","Dominican Republic","Puerto Rico",
+  // Afrika
+  "South Africa","Kenya","Nigeria","Ghana","Ethiopia","Morocco","Algeria","Tunisia","Libya","Sudan",
+  // Oceania
+  "Australia","New Zealand"
+];
 
 type Station = {
   stationuuid: string;
@@ -23,13 +56,12 @@ type Station = {
 export default function Home() {
   const [q, setQ] = useState("");
   const [country, setCountry] = useState("");
-  const [tag, setTag] = useState("");
+  const [genre, setGenre] = useState("");
   const [stations, setStations] = useState<Station[]>([]);
   const [current, setCurrent] = useState<Station | null>(null);
   const [loading, setLoading] = useState(false);
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [showFavs, setShowFavs] = useState(false);
-  const [stableOnly, setStableOnly] = useState(true); // ✅ Mode Stabil
 
   useEffect(() => {
     try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
@@ -37,44 +69,33 @@ export default function Home() {
     fetchStations();
   }, []);
 
-  const toggleFav = useCallback((s: Station) => {
-    setFavorites(prev => {
-      const obj = { ...prev, [s.stationuuid]: !prev[s.stationuuid] };
-      try { localStorage.setItem("fabaro_favs", JSON.stringify(obj)); } catch {}
-      return obj;
-    });
-  }, []);
+  const saveFavs = (obj: Record<string, boolean>) => {
+    setFavorites(obj);
+    try { localStorage.setItem("fabaro_favs", JSON.stringify(obj)); } catch {}
+  };
 
-  const onPlay = useCallback((s: Station) => {
-    setCurrent(s);
-    try { localStorage.setItem("fabaro_last_station", JSON.stringify(s)); } catch {}
-  }, []);
+  const toggleFav = (s: Station) => {
+    const obj = { ...favorites };
+    obj[s.stationuuid] = !obj[s.stationuuid];
+    saveFavs(obj);
+  };
 
-  const fetchStations = useCallback(async () => {
+  const fetchStations = async () => {
     setLoading(true);
     const params = new URLSearchParams();
     if (q) params.set("q", q);
     if (country) params.set("country", country);
-    if (tag) params.set("tag", tag);
+    if (genre) params.set("tag", genre);
     const res = await fetch(`/api/stations?${params.toString()}`, { cache: "no-store" });
-    let data: Station[] = await res.json();
-
-    if (stableOnly) {
-      data = data.filter(s => {
-        const url = (s.url_resolved || s.url || "").toLowerCase();
-        const isHttps = url.startsWith("https://");
-        const codec = (s.codec || "").toLowerCase();
-        const isMp3OrAac = codec.includes("mp3") || codec.includes("aac");
-        const okBitrate = s.bitrate ? s.bitrate <= 128 : true;
-        return isHttps && isMp3OrAac && okBitrate;
-      });
-      // urutkan yang lebih ringan dulu
-      data.sort((a, b) => (a.bitrate || 999) - (b.bitrate || 999));
-    }
-
+    const data = await res.json();
     setStations(data.slice(0, 80));
     setLoading(false);
-  }, [q, country, tag, stableOnly]);
+  };
+
+  const onPlay = (s: Station) => {
+    setCurrent(s);
+    try { localStorage.setItem("fabaro_last_station", JSON.stringify(s)); } catch {}
+  };
 
   const filtered = useMemo(
     () => (showFavs ? stations.filter((s) => favorites[s.stationuuid]) : stations),
@@ -108,40 +129,30 @@ export default function Home() {
         />
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <input
-            className="input"
-            placeholder="Negara (Indonesia, Japan)"
-            value={country}
-            onChange={(e) => setCountry(e.target.value)}
-          />
+          {/* NEGARA */}
           <select
             className="input"
-            value={tag}
-            onChange={(e) => setTag(e.target.value)}
+            value={country}
+            onChange={(e) => setCountry(e.target.value)}
           >
-            <option value="">Genre</option>
-            <option value="news">news</option>
-            <option value="quran">quran</option>
-            <option value="jazz">jazz</option>
-            <option value="k-pop">k-pop</option>
-            <option value="j-pop">j-pop</option>
-            <option value="classical">classical</option>
-            <option value="pop">pop</option>
-            <option value="rock">rock</option>
-            <option value="edm">edm</option>
-            <option value="hip-hop">hip-hop</option>
+            <option value="">Negara (semua)</option>
+            {COUNTRIES.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+
+          {/* GENRE */}
+          <select
+            className="input"
+            value={genre}
+            onChange={(e) => setGenre(e.target.value)}
+          >
+            <option value="">Genre (semua)</option>
+            {GENRES.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
           </select>
         </div>
-
-        {/* 🔒 Mode Stabil */}
-        <label className="flex items-center gap-2 text-sm text-neutral-300">
-          <input
-            type="checkbox"
-            checked={stableOnly}
-            onChange={(e)=>setStableOnly(e.target.checked)}
-          />
-          Mode Stabil (HTTPS + MP3/AAC ≤128kbps)
-        </label>
 
         <div className="grid grid-cols-2 gap-3">
           <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
