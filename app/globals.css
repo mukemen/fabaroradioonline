@@ -5,6 +5,9 @@
 html, body { height: 100%; }
 body { @apply bg-black text-white antialiased; }
 
+/* Cegah Chrome Android “auto zoom” saat fokus input */
+input, select, textarea, button { font-size: 16px; }
+
 :root {
   --safe-top: env(safe-area-inset-top);
   --safe-bottom: env(safe-area-inset-bottom);
@@ -17,4 +20,4 @@ html, body {
 
 .button { @apply px-4 py-3 rounded-lg font-medium; }
 .card   { @apply bg-neutral-900 rounded-2xl p-4; }
-.input  { @apply bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500; }
+.input  { @apply bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500 w-full; }
