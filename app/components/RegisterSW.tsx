@@ -1,28 +1,28 @@
 "use client";
 import { useEffect } from "react";
 
-// Ganti angka ini kalau mau paksa semua klien update
-const SW_VERSION = "2025-09-03-2";
+// Ganti angka ini untuk memaksa klien ambil SW baru
+const SW_VERSION = "2025-09-03-3";
 
 export default function RegisterSW() {
   useEffect(() => {
     if (!("serviceWorker" in navigator)) return;
 
     const swUrl = `/sw.js?v=${SW_VERSION}`;
-
     let refreshed = false;
+
     const onMessage = (e: MessageEvent) => {
       if (e?.data?.type === "SW_UPDATED" && !refreshed) {
         refreshed = true;
-        // beri sedikit jeda agar SW baru sudah aktif penuh
+        // beri jeda kecil agar SW benar2 aktif, lalu reload halaman
         setTimeout(() => window.location.reload(), 150);
       }
     };
     navigator.serviceWorker.addEventListener("message", onMessage);
 
-    // Daftarkan SW dengan query versi agar pasti beda URL (bikin update)
+    // Daftarkan SW (pakai query versi agar URL beda → trigger update)
     navigator.serviceWorker.register(swUrl).then((reg) => {
-      // kalau sudah ada SW baru waiting, suruh langsung aktif
+      // Jika SW baru sudah waiting, minta langsung aktif
       if (reg.waiting) {
         reg.waiting.postMessage({ type: "SKIP_WAITING" });
       }
@@ -30,12 +30,12 @@ export default function RegisterSW() {
         const sw = reg.installing;
         if (!sw) return;
         sw.addEventListener("statechange", () => {
-          // saat "installed" dan sudah ada controller, SW baru akan kirim pesan "SW_UPDATED" saat activate
+          // SW akan kirim pesan "SW_UPDATED" saat activate
         });
       });
     }).catch(() => {});
 
-    // Safety: kalau ada SW lama tanpa versi, unregister lalu register ulang
+    // Pastikan registrasi lama tergantikan oleh yang ber-versi baru
     navigator.serviceWorker.getRegistrations().then((regs) => {
       regs.forEach((r) => {
         const url = r.active?.scriptURL || r.installing?.scriptURL || r.waiting?.scriptURL || "";
@@ -47,7 +47,9 @@ export default function RegisterSW() {
       });
     });
 
-    return () => navigator.serviceWorker.removeEventListener("message", onMessage);
+    return () => {
+      navigator.serviceWorker.removeEventListener("message", onMessage);
+    };
   }, []);
 
   return null;
