@@ -2,22 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body { height: 100%; }
+/* --- Safety: cegah halaman meluber ke kanan --- */
+html, body {
+  height: 100%;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;          /* penting untuk Android */
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
 body { @apply bg-black text-white antialiased; }
 
-/* Cegah Chrome Android “auto zoom” saat fokus input */
+/* Input >=16px supaya Chrome Android tidak auto-zoom */
 input, select, textarea, button { font-size: 16px; }
 
+/* Gambar tidak boleh melebar melebihi container */
+img { max-width: 100%; height: auto; display: block; }
+
+/* Utility yang kita pakai */
+.button { @apply px-4 py-3 rounded-lg font-medium; }
+.card   { @apply bg-neutral-900 rounded-2xl p-4; }
+.input  { @apply w-full bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500; }
+
+/* Area aman untuk notch/pill */
 :root {
   --safe-top: env(safe-area-inset-top);
   --safe-bottom: env(safe-area-inset-bottom);
 }
-
-html, body {
-  overscroll-behavior: none;
-  -webkit-tap-highlight-color: transparent;
-}
-
-.button { @apply px-4 py-3 rounded-lg font-medium; }
-.card   { @apply bg-neutral-900 rounded-2xl p-4; }
-.input  { @apply bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500 w-full; }
