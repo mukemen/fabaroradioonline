@@ -19,7 +19,16 @@ type Station = {
   bitrate: number;
 };
 
-const PRESET_TAGS = ["pop","news","jazz","quran","k-pop","classical","indonesia","japan"];
+const PRESET_TAGS = [
+  "pop",
+  "news",
+  "jazz",
+  "quran",
+  "k-pop",
+  "classical",
+  "indonesia",
+  "japan",
+];
 
 export default function Home() {
   const [q, setQ] = useState("");
@@ -31,15 +40,25 @@ export default function Home() {
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [showFavs, setShowFavs] = useState(false);
 
+  // Restore favorites & last station, lalu fetch awal
   useEffect(() => {
-    try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
-    fetchStations();
-    try { const last = localStorage.getItem("fabaro_last_station"); if (last) setCurrent(JSON.parse(last)); } catch {}
+    try {
+      const rawFav = localStorage.getItem("fabaro_favs");
+      if (rawFav) setFavorites(JSON.parse(rawFav));
+    } catch {}
+    try {
+      const last = localStorage.getItem("fabaro_last_station");
+      if (last) setCurrent(JSON.parse(last));
+    } catch {}
+    fetchStationsWith({ q: "", country: "", tag: "" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const saveFavs = (obj: Record<string, boolean>) => {
     setFavorites(obj);
-    try { localStorage.setItem("fabaro_favs", JSON.stringify(obj)); } catch {}
+    try {
+      localStorage.setItem("fabaro_favs", JSON.stringify(obj));
+    } catch {}
   };
 
   const toggleFav = (s: Station) => {
@@ -48,21 +67,26 @@ export default function Home() {
     saveFavs(obj);
   };
 
-  const fetchStations = async () => {
+  // Fetch helper
+  const fetchStationsWith = async (opts: { q: string; country: string; tag: string }) => {
     setLoading(true);
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (country) params.set("country", country);
-    if (tag) params.set("tag", tag);
+    if (opts.q) params.set("q", opts.q);
+    if (opts.country) params.set("country", opts.country);
+    if (opts.tag) params.set("tag", opts.tag);
     const res = await fetch(`/api/stations?${params.toString()}`, { cache: "no-store" });
     const data = await res.json();
     setStations(data.slice(0, 60));
     setLoading(false);
   };
 
+  const fetchStations = () => fetchStationsWith({ q, country, tag });
+
   const onPlay = (s: Station) => {
     setCurrent(s);
-    try { localStorage.setItem("fabaro_last_station", JSON.stringify(s)); } catch {}
+    try {
+      localStorage.setItem("fabaro_last_station", JSON.stringify(s));
+    } catch {}
   };
 
   const filtered = useMemo(
@@ -71,45 +95,57 @@ export default function Home() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-56">
+    <main className="w-full mx-auto max-w-screen-sm px-4 space-y-4 pb-56 overflow-x-hidden">
       <RegisterSW />
       <InstallPrompt />
 
-      <header className="flex items-center gap-3">
-        <img src="/logo.png" alt="FABARO" className="w-10 h-10" />
-        <div>
-          <h1 className="text-2xl font-semibold leading-tight">FABARO Radio Online</h1>
-          <p className="text-sm text-neutral-400">Streaming radio dunia & Indonesia</p>
+      {/* HEADER */}
+      <header className="grid grid-cols-[40px_1fr] items-center gap-3">
+        <img src="/logo.png" alt="FABARO" className="w-10 h-10 rounded" />
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold leading-tight truncate">
+            FABARO Radio Online
+          </h1>
+          <p className="text-sm text-neutral-400">
+            Streaming radio dunia & Indonesia
+          </p>
         </div>
       </header>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      {/* FORM: 1 kolom di HP, 2 kolom di layar lebar */}
+      <section className="grid gap-3">
         <input
-          className="input flex-1"
+          className="input"
           placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <div className="flex gap-2">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input
-            className="input w-[48vw] max-w-[220px]"
+            className="input"
             placeholder="Negara (Indonesia, Japan)"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           />
           <select
-            className="input w-[36vw] max-w-[160px]"
+            className="input"
             value={tag}
             onChange={(e) => setTag(e.target.value)}
           >
             <option value="">Genre</option>
             {PRESET_TAGS.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {t}
+              </option>
             ))}
           </select>
         </div>
-        <div className="flex gap-2">
-          <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={fetchStations} className="button bg-white text-black">
+            Cari
+          </button>
           <button
             onClick={() => setShowFavs((v) => !v)}
             className={"button " + (showFavs ? "bg-yellow-300 text-black" : "bg-neutral-800")}
@@ -117,18 +153,83 @@ export default function Home() {
             Favorit
           </button>
         </div>
-      </div>
+      </section>
 
+      {/* PRESET PILLS */}
       <div className="flex gap-2 flex-wrap text-sm">
-        <button onClick={()=>{ setCountry("Indonesia"); setTag(""); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
-        <button onClick={()=>{ setCountry(""); setTag("news"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
-        <button onClick={()=>{ setCountry(""); setTag("quran"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Religi: Quran</button>
-        <button onClick={()=>{ setCountry("Japan"); setTag("j-pop"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">J-Pop</button>
-        <button onClick={()=>{ setCountry("South Korea"); setTag("k-pop"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">K-Pop</button>
-        <button onClick={()=>{ setCountry(""); setTag("jazz"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Jazz</button>
-        <button onClick={()=>{ setCountry(""); setTag("classical"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Classical</button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "Indonesia", tag: "" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          Top Indonesia
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "", tag: "news" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          Global News
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "", tag: "quran" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          Religi: Quran
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "Japan", tag: "j-pop" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          J-Pop
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "South Korea", tag: "k-pop" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          K-Pop
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "", tag: "jazz" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          Jazz
+        </button>
+        <button
+          onClick={() => {
+            const opts = { q: "", country: "", tag: "classical" };
+            setQ(opts.q); setCountry(opts.country); setTag(opts.tag);
+            fetchStationsWith(opts);
+          }}
+          className="px-3 py-2 rounded-xl bg-neutral-800"
+        >
+          Classical
+        </button>
       </div>
 
+      {/* LIST */}
       {loading ? (
         <p>Memuat…</p>
       ) : (
@@ -140,6 +241,7 @@ export default function Home() {
         />
       )}
 
+      {/* MINI PLAYER */}
       <Player station={current} />
     </main>
   );
