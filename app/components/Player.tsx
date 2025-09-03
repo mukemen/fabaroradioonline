@@ -6,22 +6,59 @@ type Station = any;
 
 export default function Player({ station }: { station: Station | null }) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const [err, setErr] = useState("");
-  const [now, setNow] = useState("");
-  const [expanded, setExpanded] = useState(false);
-  const [needTap, setNeedTap] = useState(false); // autoplay blocker
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [sleepMin, setSleepMin] = useState(0);
-
-  const retryTimer = useRef<NodeJS.Timeout | null>(null);
-  const sleepTimer = useRef<NodeJS.Timeout | null>(null);
   const hlsRef = useRef<Hls | null>(null);
-  const usedProxyRef = useRef<boolean>(false);
+
+  const [now, setNow] = useState("");
+  const [err, setErr] = useState("");
+  const [needTap, setNeedTap] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+
+  // reconnect/backoff
+  const usedProxyRef = useRef(false);
+  const retryCountRef = useRef(0);
+  const retryTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // watchdog
+  const lastTimeRef = useRef(0);
+  const lastTickRef = useRef(0);
+  const watchdogRef = useRef<NodeJS.Timeout | null>(null);
+
+  // wake lock
+  const wakeRef = useRef<any>(null);
 
   const needsProxy = (u: string) =>
     typeof window !== "undefined" && window.location.protocol === "https:" && u?.startsWith("http://");
   const buildSrc = (u: string, forceProxy = false) =>
     forceProxy || needsProxy(u) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
+
+  const clearRetry = () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); retryTimerRef.current = null; };
+  const destroyHls = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
+
+  const requestWake = async () => {
+    try {
+      // @ts-ignore
+      if (navigator.wakeLock) wakeRef.current = await (navigator as any).wakeLock.request("screen");
+    } catch {}
+  };
+  const releaseWake = async () => {
+    try { await wakeRef.current?.release?.(); } catch {} finally { wakeRef.current = null; }
+  };
+
+  const setMediaSession = (title: string) => {
+    try {
+      if ("mediaSession" in navigator) {
+        (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
+          title: title || (station?.name || "FABARO Radio"),
+          artist: station?.country || "",
+          album: station?.tags || "",
+          artwork: [{ src: station?.favicon || "/icon-192.png", sizes: "192x192", type: "image/png" }]
+        });
+        (navigator as any).mediaSession.setActionHandler("play", () => attemptPlay());
+        (navigator as any).mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
+      }
+    } catch {}
+  };
 
   const attemptPlay = async () => {
     const a = audioRef.current;
@@ -29,69 +66,116 @@ export default function Player({ station }: { station: Station | null }) {
     try {
       await a.play();
       setNeedTap(false);
+      await requestWake();
     } catch {
       setNeedTap(true);
     }
   };
 
-  const togglePlay = async () => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (a.paused) await attemptPlay();
-    else a.pause();
+  const loadAndPlay = (src: string) => {
+    const a = audioRef.current!;
+    destroyHls();
+    clearRetry();
+    setErr("");
+
+    if (src.includes(".m3u8") && Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true });
+      hlsRef.current = hls;
+      hls.loadSource(src);
+      hls.attachMedia(a);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => attemptPlay());
+      hls.on(Hls.Events.ERROR, () => scheduleRetry());
+    } else {
+      a.src = src;
+      a.load();
+      attemptPlay();
+      a.onerror = () => scheduleRetry();
+    }
   };
 
-  useEffect(() => {
-    setErr(""); setNow(""); setNeedTap(false); usedProxyRef.current = false;
-    const audio = audioRef.current;
-    if (!audio || !station) return;
+  const scheduleRetry = () => {
+    const a = audioRef.current;
+    if (!a || !station) return;
+    // kalau sudah coba proxy dan tetap gagal, tampilkan error
+    if (usedProxyRef.current && retryCountRef.current >= 3) {
+      setErr("Sinyal terputus. Mencoba lagi nanti…");
+    }
+    const backoffMs = Math.min(15000, 1000 * Math.pow(2, retryCountRef.current)); // 1s,2s,4s,8s,15s
+    retryCountRef.current++;
+    clearRetry();
+    retryTimerRef.current = setTimeout(() => {
+      const raw = station.url_resolved || station.url || "";
+      // pakai proxy setelah 1x gagal
+      if (retryCountRef.current >= 1) usedProxyRef.current = true;
+      loadAndPlay(buildSrc(raw, usedProxyRef.current));
+    }, backoffMs);
+  };
 
-    const onPlay = () => setIsPlaying(true);
-    const onPause = () => setIsPlaying(false);
-    audio.addEventListener("play", onPlay);
-    audio.addEventListener("pause", onPause);
-    audio.addEventListener("ended", onPause);
+  // Watchdog: kalau waktu tidak bergerak >20s saat playing → reload
+  const startWatchdog = () => {
+    clearWatchdog();
+    lastTimeRef.current = audioRef.current?.currentTime || 0;
+    lastTickRef.current = Date.now();
+    watchdogRef.current = setInterval(() => {
+      const a = audioRef.current;
+      if (!a || a.paused) return;
+      const t = a.currentTime;
+      const now = Date.now();
+      if (Math.abs(t - lastTimeRef.current) < 0.2 && now - lastTickRef.current > 20000) {
+        scheduleRetry(); // macet, coba reload
+        lastTickRef.current = now;
+      } else if (Math.abs(t - lastTimeRef.current) >= 0.2) {
+        lastTimeRef.current = t;
+        lastTickRef.current = now;
+      }
+    }, 10000);
+  };
+  const clearWatchdog = () => {
+    if (watchdogRef.current) clearInterval(watchdogRef.current);
+    watchdogRef.current = null;
+  };
+
+  // Init setiap ganti station
+  useEffect(() => {
+    const a = audioRef.current;
+    if (!a || !station) return;
+
+    // reset flags
+    usedProxyRef.current = false;
+    retryCountRef.current = 0;
+    setErr(""); setNow(""); setNeedTap(false);
 
     const raw = station.url_resolved || station.url || "";
-    const cleanup = () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
 
-    const tryPlay = (src: string) => {
-      cleanup();
-      if (src.includes(".m3u8") && Hls.isSupported()) {
-        const hls = new Hls({ enableWorker: true });
-        hlsRef.current = hls;
-        hls.loadSource(src);
-        hls.attachMedia(audio);
-        hls.on(Hls.Events.MANIFEST_PARSED, () => attemptPlay());
-        hls.on(Hls.Events.ERROR, () => fallbackToProxy());
-      } else {
-        audio.src = src;
-        audio.load();
-        attemptPlay();
-        audio.onerror = () => fallbackToProxy();
-      }
-    };
+    const onPlay = () => { setIsPlaying(true); setMediaSession(now || station.name || "Radio"); startWatchdog(); };
+    const onPause = () => { setIsPlaying(false); clearWatchdog(); releaseWake(); };
+    const onStalled = () => scheduleRetry();
+    const onWaiting = () => scheduleRetry();
+    const onSuspend = () => scheduleRetry();
 
-    const fallbackToProxy = () => {
-      if (usedProxyRef.current) { setErr("Gagal memutar (CORS/geo-block/URL rusak)."); return; }
-      usedProxyRef.current = true;
-      setErr("Mencoba mode proxy…");
-      const proxied = buildSrc(raw, true);
-      if (retryTimer.current) clearTimeout(retryTimer.current);
-      retryTimer.current = setTimeout(() => tryPlay(proxied), 300);
-    };
+    a.addEventListener("play", onPlay);
+    a.addEventListener("pause", onPause);
+    a.addEventListener("stalled", onStalled);
+    a.addEventListener("waiting", onWaiting);
+    a.addEventListener("suspend", onSuspend);
 
-    tryPlay(buildSrc(raw));
+    loadAndPlay(buildSrc(raw));
 
     return () => {
-      audio.removeEventListener("play", onPlay);
-      audio.removeEventListener("pause", onPause);
-      audio.removeEventListener("ended", onPause);
-      cleanup();
+      a.removeEventListener("play", onPlay);
+      a.removeEventListener("pause", onPause);
+      a.removeEventListener("stalled", onStalled);
+      a.removeEventListener("waiting", onWaiting);
+      a.removeEventListener("suspend", onSuspend);
+      destroyHls();
+      clearRetry();
+      clearWatchdog();
+      releaseWake();
     };
-  }, [station]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [station?.stationuuid]);
 
-  // Now Playing polling
+  // Now Playing polling (tetap ringan)
   useEffect(() => {
     let t: NodeJS.Timeout | null = null;
     const pull = async () => {
@@ -101,21 +185,29 @@ export default function Player({ station }: { station: Station | null }) {
         const src = usedProxyRef.current ? `/api/proxy?url=${encodeURIComponent(raw)}` : raw;
         const res = await fetch(`/api/nowplaying?url=${encodeURIComponent(src)}`, { cache: "no-store" });
         const j = await res.json();
-        if (j && j.title) setNow(j.title);
+        if (j?.title) { setNow(j.title); setMediaSession(j.title); }
       } catch {}
     };
-    pull(); t = setInterval(pull, 15000);
-    return () => { if (t) clearInterval(t); };
-  }, [station]);
+    pull();
+    t = setInterval(pull, 15000);
+    return () => t && clearInterval(t);
+  }, [station?.stationuuid]);
 
-  // Sleep timer
+  // Resume saat online / tab aktif lagi
   useEffect(() => {
-    if (sleepTimer.current) { clearTimeout(sleepTimer.current); sleepTimer.current = null; }
-    if (sleepMin > 0 && audioRef.current) {
-      sleepTimer.current = setTimeout(() => { audioRef.current?.pause(); }, sleepMin * 60 * 1000);
-    }
-    return () => { if (sleepTimer.current) clearTimeout(sleepTimer.current); };
-  }, [sleepMin]);
+    const online = () => { if (audioRef.current && !audioRef.current.paused && !needTap) scheduleRetry(); };
+    const visible = () => { if (!document.hidden && audioRef.current && !audioRef.current.paused && !needTap) attemptPlay(); };
+    window.addEventListener("online", online);
+    document.addEventListener("visibilitychange", visible);
+    return () => { window.removeEventListener("online", online); document.removeEventListener("visibilitychange", visible); };
+  }, [needTap]);
+
+  const togglePlay = async () => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) await attemptPlay();
+    else a.pause();
+  };
 
   return (
     <>
@@ -132,28 +224,22 @@ export default function Player({ station }: { station: Station | null }) {
             <div className="text-xs text-neutral-400">{station.country} • {station.tags}</div>
             {now && <div className="text-sm text-green-300">Now Playing: {now}</div>}
             {err && <div className="text-red-400 text-sm">{err}</div>}
-            <audio ref={audioRef} controls className="w-full" />
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-neutral-400">Sleep (menit)</span>
-              <input
-                type="number" min={0} max={180} value={sleepMin}
-                onChange={(e)=>setSleepMin(parseInt(e.target.value || "0"))}
-                className="w-24 bg-neutral-800 rounded px-2 py-2 outline-none"
-              />
-              <div className="flex gap-2">
-                {[15,30,60].map(m=>(
-                  <button key={m} onClick={()=>setSleepMin(m)} className="px-3 py-2 rounded bg-neutral-800">{m}m</button>
-                ))}
-              </div>
-              <button onClick={()=>setSleepMin(0)} className="px-3 py-2 rounded bg-neutral-800">Reset</button>
-              <button onClick={()=>audioRef.current?.pause()} className="ml-auto px-3 py-2 rounded bg-white text-black">Pause</button>
-              <button onClick={()=>setExpanded(false)} className="px-3 py-2 rounded bg-neutral-800">Tutup</button>
+            <audio
+              ref={audioRef}
+              controls
+              className="w-full"
+              playsInline
+              preload="none"
+              controlsList="nodownload noplaybackrate noremoteplayback"
+            />
+            <div className="flex items-center gap-2">
+              <button onClick={()=>setExpanded(false)} className="ml-auto px-3 py-2 rounded bg-neutral-800">Tutup</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Mini player – SELALU ada tombol Play/Pause */}
+      {/* Mini player */}
       <div className="fixed left-0 right-0 z-[60] bottom-3" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 0px)" }}>
         <div className="mx-auto max-w-5xl">
           <div className="mx-3 rounded-2xl bg-neutral-900/95 backdrop-blur border border-neutral-800 px-3 py-2">
@@ -169,7 +255,6 @@ export default function Player({ station }: { station: Station | null }) {
                   <div className="text-sm font-semibold truncate">{station.name}</div>
                   <div className="text-xs text-neutral-400 truncate">{now || station.country}</div>
                 </div>
-
                 <button onClick={togglePlay} className="ml-auto px-3 py-2 rounded-lg bg-white text-black text-sm">
                   {needTap ? "Putar" : (isPlaying ? "Pause" : "Play")}
                 </button>
@@ -184,7 +269,8 @@ export default function Player({ station }: { station: Station | null }) {
         </div>
       </div>
 
-      <audio ref={audioRef} className="hidden" />
+      {/* audio hidden supaya tetap playing saat mini-player dipakai */}
+      <audio ref={audioRef} className="hidden" playsInline preload="none" />
     </>
   );
 }
