@@ -33,7 +33,6 @@ export default function Home() {
   useEffect(() => {
     try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
     fetchStations();
-    // restore last station
     try { const last = localStorage.getItem("fabaro_last_station"); if (last) setCurrent(JSON.parse(last)); } catch {}
   }, []);
 
@@ -71,7 +70,7 @@ export default function Home() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-40">
+    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-56">
       <RegisterSW />
       <InstallPrompt />
 
@@ -123,7 +122,6 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Preset cepat */}
       <div className="flex gap-2 flex-wrap text-sm">
         <button onClick={() => { setCountry("Indonesia"); setTag(""); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
         <button onClick={() => { setCountry(""); setTag("news"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
