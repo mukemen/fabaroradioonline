@@ -1,12 +1,12 @@
 import "./globals.css";
 
-// Metadata biasa
+// Metadata (opsional)
 export const metadata = {
   title: "FABARO Radio Online",
   description: "Streaming radio dunia - cari, putar, favorit, sleep timer."
 };
 
-// Viewport RESMI Next.js → lebih stabil di Android
+// Viewport RESMI Next.js → skala pas di Android, tidak auto-zoom
 export const viewport = {
   width: "device-width",
   initialScale: 1,
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
-      {/* Kunci lebar & cegah scroll horizontal */}
+      {/* kunci lebar & cegah scroll horizontal */}
       <body className="bg-black text-white min-h-screen w-full overflow-x-hidden">
         {children}
       </body>
