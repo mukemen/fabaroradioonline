@@ -14,7 +14,7 @@ export default function StationList({
       {stations.map((s: any) => (
         <div key={s.stationuuid} className="bg-neutral-900 rounded-2xl p-3">
           <div className="flex items-center gap-3">
-            {/* thumbnail responsif: lebih kecil di HP, 64px di md+ */}
+            {/* thumbnail responsif */}
             <div className="shrink-0 w-14 h-14 md:w-16 md:h-16 rounded-xl overflow-hidden bg-neutral-800">
               <img
                 src={s.favicon || "/icon-192.png"}
@@ -32,6 +32,7 @@ export default function StationList({
               <div className="text-xs text-neutral-500 line-clamp-1">{s.tags}</div>
             </div>
 
+            {/* Tombol favorit + PUTAR */}
             <div className="flex shrink-0 items-center gap-2">
               <button
                 onClick={()=>toggleFav(s)}
