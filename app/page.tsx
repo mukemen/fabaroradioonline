@@ -70,34 +70,37 @@ export default function Home() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl p-4 space-y-4 pb-56">
+    <main className="w-full mx-auto max-w-screen-sm px-4 space-y-4 pb-56">
       <RegisterSW />
       <InstallPrompt />
 
-      <header className="flex items-center gap-3">
-        <img src="/logo.png" alt="FABARO" className="w-10 h-10" />
-        <div>
-          <h1 className="text-2xl font-semibold leading-tight">FABARO Radio Online</h1>
+      {/* HEADER */}
+      <header className="grid grid-cols-[40px_1fr] items-center gap-3">
+        <img src="/logo.png" alt="FABARO" className="w-10 h-10 rounded" />
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-semibold leading-tight truncate">FABARO Radio Online</h1>
           <p className="text-sm text-neutral-400">Streaming radio dunia & Indonesia</p>
         </div>
       </header>
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      {/* FORM: 1 kolom di HP, rapi dan penuh lebar */}
+      <section className="grid gap-3">
         <input
-          className="input flex-1"
+          className="input"
           placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        <div className="flex gap-2">
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <input
-            className="input w-[48vw] max-w-[220px]"
+            className="input"
             placeholder="Negara (Indonesia, Japan)"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
           />
           <select
-            className="input w-[36vw] max-w-[160px]"
+            className="input"
             value={tag}
             onChange={(e) => setTag(e.target.value)}
           >
@@ -109,10 +112,9 @@ export default function Home() {
             ))}
           </select>
         </div>
-        <div className="flex gap-2">
-          <button onClick={fetchStations} className="button bg-white text-black">
-            Cari
-          </button>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
           <button
             onClick={() => setShowFavs((v) => !v)}
             className={"button " + (showFavs ? "bg-yellow-300 text-black" : "bg-neutral-800")}
@@ -120,8 +122,9 @@ export default function Home() {
             Favorit
           </button>
         </div>
-      </div>
+      </section>
 
+      {/* PRESET PILLS */}
       <div className="flex gap-2 flex-wrap text-sm">
         <button onClick={() => { setCountry("Indonesia"); setTag(""); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
         <button onClick={() => { setCountry(""); setTag("news"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
@@ -132,6 +135,7 @@ export default function Home() {
         <button onClick={() => { setCountry(""); setTag("classical"); setQ(""); fetchStations(); }} className="px-3 py-2 rounded-xl bg-neutral-800">Classical</button>
       </div>
 
+      {/* LIST */}
       {loading ? (
         <p>Memuat…</p>
       ) : (
