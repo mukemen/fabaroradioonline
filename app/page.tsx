@@ -16,8 +16,6 @@ type Station = {
   bitrate: number;
 };
 
-const PRESET_TAGS = ["pop","news","jazz","quran","k-pop","classical","indonesia","japan"];
-
 export default function Home() {
   const [q, setQ] = useState("");
   const [country, setCountry] = useState("");
@@ -29,7 +27,10 @@ export default function Home() {
   const [showFavs, setShowFavs] = useState(false);
 
   useEffect(() => {
-    try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
+    try {
+      const raw = localStorage.getItem("fabaro_favs");
+      if (raw) setFavorites(JSON.parse(raw));
+    } catch {}
   }, []);
 
   const saveFavs = (obj: Record<string, boolean>) => {
@@ -58,7 +59,7 @@ export default function Home() {
   useEffect(() => { fetchStations(); }, []);
 
   const filtered = useMemo(
-    () => (showFavs ? stations.filter(s => favorites[s.stationuuid]) : stations),
+    () => (showFavs ? stations.filter((s) => favorites[s.stationuuid]) : stations),
     [stations, favorites, showFavs]
   );
 
@@ -77,43 +78,40 @@ export default function Home() {
           className="input flex-1"
           placeholder="Cari stasiun/genre (jazz, news, quran, k-pop)…"
           value={q}
-          onChange={(e)=>setQ(e.target.value)}
+          onChange={(e) => setQ(e.target.value)}
         />
         <div className="flex gap-2">
           <input
             className="input w-[48vw] max-w-[220px]"
             placeholder="Negara (Indonesia, Japan)"
             value={country}
-            onChange={(e)=>setCountry(e.target.value)}
+            onChange={(e) => setCountry(e.target.value)}
           />
           <select
             className="input w-[36vw] max-w-[160px]"
             value={tag}
-            onChange={(e)=>setTag(e.target.value)}
+            onChange={(e) => setTag(e.target.value)}
           >
             <option value="">Genre</option>
-            {PRESET_TAGS.map(t => <option key={t} value={t}>{t}</option>)}
+            <option value="pop">pop</option>
+            <option value="news">news</option>
+            <option value="jazz">jazz</option>
+            <option value="quran">quran</option>
+            <option value="k-pop">k-pop</option>
+            <option value="classical">classical</option>
+            <option value="indonesia">indonesia</option>
+            <option value="japan">japan</option>
           </select>
         </div>
         <div className="flex gap-2">
           <button onClick={fetchStations} className="button bg-white text-black">Cari</button>
           <button
-            onClick={()=>setShowFavs(v=>!v)}
-            className={"button " + (showFavs ? "bg-yellow-300 text-black":"bg-neutral-800")}
+            onClick={() => setShowFavs((v) => !v)}
+            className={"button " + (showFavs ? "bg-yellow-300 text-black" : "bg-neutral-800")}
           >
             Favorit
           </button>
         </div>
-      </div>
-
-      <div className="flex gap-2 flex-wrap text-sm">
-        <button onClick={()=>{setCountry("Indonesia"); setTag(""); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Top Indonesia</button>
-        <button onClick={()=>{setCountry(""); setTag("news"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Global News</button>
-        <button onClick={()=>{setCountry(""); setTag("quran"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Religi: Quran</button>
-        <button onClick={()=>{setCountry("Japan"); setTag("j-pop"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">J-Pop</button>
-        <button onClick={()=>{setCountry("South Korea"); setTag("k-pop"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">K-Pop</button>
-        <button onClick={()=>{setCountry(""); setTag("jazz"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Jazz</button>
-        <button onClick={()=>{setCountry(""); setTag("classical"); setQ(""); fetchStations();}} className="px-3 py-2 rounded-xl bg-neutral-800">Classical</button>
       </div>
 
       {loading ? (
