@@ -13,7 +13,7 @@ export default function InstallPrompt() {
     };
     window.addEventListener("beforeinstallprompt", onBefore);
 
-    // jika sudah terpasang, jangan tampilkan
+    // Jika sudah terpasang (standalone), jangan tampilkan banner
     const isStandalone =
       window.matchMedia("(display-mode: standalone)").matches ||
       (window.navigator as any).standalone === true;
@@ -24,8 +24,12 @@ export default function InstallPrompt() {
 
   if (!show || !evt) return null;
 
+  // Digeser di atas mini-player + aman untuk notch
   return (
-    <div className="fixed bottom-20 left-0 right-0 z-[60] px-4">
+    <div
+      className="fixed left-0 right-0 z-[60] px-4"
+      style={{ bottom: "calc(112px + env(safe-area-inset-bottom))" }}
+    >
       <div className="mx-auto max-w-md rounded-2xl bg-neutral-900/95 border border-neutral-800 p-3 backdrop-blur">
         <div className="flex items-center gap-3">
           <img src="/icon-192.png" className="w-8 h-8 rounded" />
