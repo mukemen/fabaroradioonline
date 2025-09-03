@@ -25,22 +25,31 @@ export default function Player({ station }: { station: Station | null }) {
   const lastTimeRef = useRef(0);
   const lastTickRef = useRef(0);
 
-  // token untuk mencegah race ketika ganti stasiun cepat
+  // token mencegah race saat ganti cepat
   const loadTokenRef = useRef(0);
 
-  // abort untuk polling now playing
+  // polling now playing
   const nowAbortRef = useRef<AbortController | null>(null);
 
-  // wake lock (opsional)
+  // wake lock
   const wakeRef = useRef<any>(null);
+
+  // Host yang dikenal sering CORS/putus → selalu via proxy
+  const FORCE_PROXY = new Set<string>([
+    // contoh: "stream-uk1.radiopanel.com", "live.radio.xxx"
+  ]);
 
   const needsProxy = (u: string) =>
     typeof window !== "undefined" &&
     window.location.protocol === "https:" &&
     u?.startsWith("http://");
 
-  const buildSrc = (u: string, forceProxy = false) =>
-    forceProxy || needsProxy(u) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
+  const hostFrom = (u: string) => { try { return new URL(u).hostname; } catch { return ""; } };
+
+  const buildSrc = (u: string, forceProxy = false) => {
+    const must = FORCE_PROXY.has(hostFrom(u));
+    return (forceProxy || must || needsProxy(u)) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
+  };
 
   const clearRetry = () => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -106,12 +115,19 @@ export default function Player({ station }: { station: Station | null }) {
     }
   };
 
-  const scheduleRetry = (token: number) => {
-    // jangan retry kalau sudah pemuatan baru
-    if (token !== loadTokenRef.current) return;
+  // “nudge” kecil untuk melepas macet di beberapa browser
+  const nudge = () => {
+    const a = audioRef.current;
+    if (!a) return;
+    try { a.currentTime = Math.max(0, a.currentTime + 0.001); } catch {}
+  };
 
+  const scheduleRetry = (token: number) => {
+    if (token !== loadTokenRef.current) return;
     const a = audioRef.current;
     if (!a || !station) return;
+
+    nudge(); // coba bebaskan macet dulu
 
     const backoffMs = Math.min(15000, 1000 * Math.pow(2, retryCountRef.current)); // 1,2,4,8,15s
     retryCountRef.current++;
@@ -120,7 +136,7 @@ export default function Player({ station }: { station: Station | null }) {
     retryTimerRef.current = setTimeout(() => {
       if (token !== loadTokenRef.current) return;
       const raw = station.url_resolved || station.url || "";
-      if (retryCountRef.current >= 1) usedProxyRef.current = true; // coba proxy setelah 1x gagal
+      if (retryCountRef.current >= 1) usedProxyRef.current = true; // pakai proxy setelah 1x gagal
       loadAndPlay(buildSrc(raw, usedProxyRef.current), token);
     }, backoffMs);
   };
@@ -138,7 +154,6 @@ export default function Player({ station }: { station: Station | null }) {
       if (!aud || aud.paused) return;
       const t = aud.currentTime;
       const nowT = Date.now();
-      // kalau waktu tidak bergerak > 20s → reload stream
       if (Math.abs(t - lastTimeRef.current) < 0.2 && nowT - lastTickRef.current > 20000) {
         scheduleRetry(token);
         lastTickRef.current = nowT;
@@ -174,10 +189,8 @@ export default function Player({ station }: { station: Station | null }) {
       } catch {}
     };
 
-    // jalan awal + interval
     pull();
     const id = setInterval(pull, 15000);
-    // simpan di AbortController untuk dibersihkan
     const abort = nowAbortRef.current;
     abort.signal.addEventListener("abort", () => clearInterval(id));
   };
@@ -191,13 +204,13 @@ export default function Player({ station }: { station: Station | null }) {
     clearRetry();
     destroyHls();
 
-    // event untuk menandai konek
-    const onCanPlay = () => {
-      if (token !== loadTokenRef.current) return;
-      setLoadingStream(false);
-      setNeedTap(false);
-    };
-    const onPlaying = () => {
+    // bersihkan listener lama
+    a.oncanplay = a.onplaying = a.onpause = a.onstalled = a.onwaiting = a.onerror = a.oncanplaythrough = null;
+
+    // listener baru
+    a.oncanplay = () => { if (token === loadTokenRef.current) setLoadingStream(false); };
+    a.oncanplaythrough = () => { if (token === loadTokenRef.current) setLoadingStream(false); };
+    a.onplaying = () => {
       if (token !== loadTokenRef.current) return;
       setLoadingStream(false);
       setNeedTap(false);
@@ -205,44 +218,22 @@ export default function Player({ station }: { station: Station | null }) {
       setMediaSession(now || station?.name);
       startWatchdog(token);
     };
-    const onPause = () => {
-      if (token !== loadTokenRef.current) return;
-      setIsPlaying(false);
-    };
-    const onStalled = () => scheduleRetry(token);
-    const onWaiting = () => scheduleRetry(token);
-    const onError = () => scheduleRetry(token);
+    a.onpause = () => { if (token === loadTokenRef.current) setIsPlaying(false); };
+    a.onstalled = () => scheduleRetry(token);
+    a.onwaiting = () => scheduleRetry(token);
+    a.onerror = () => scheduleRetry(token);
 
-    // buang semua listener lama dulu
-    a.oncanplay = null;
-    a.onplaying = null;
-    a.onpause = null;
-    a.onstalled = null;
-    a.onwaiting = null;
-    a.onerror = null;
-
-    // assign listener baru
-    a.oncanplay = onCanPlay;
-    a.onplaying = onPlaying;
-    a.onpause = onPause;
-    a.onstalled = onStalled;
-    a.onwaiting = onWaiting;
-    a.onerror = onError;
-
-    // pilih mode HLS atau direct
+    // pilih HLS atau direct
     if (src.includes(".m3u8") && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
-        // buffer pendek biar cepat pindah & kecil risiko lag
         maxBufferLength: 6,
         maxMaxBufferLength: 30,
         backBufferLength: 30,
-        // retry ringan (sisanya kita handle di scheduleRetry)
         fragLoadingRetryDelay: 800,
         manifestLoadingRetryDelay: 800,
         levelLoadingRetryDelay: 800,
-        // jangan auto start sebelum attach (kita kontrol sendiri)
         autoStartLoad: true,
       });
       hlsRef.current = hls;
@@ -250,9 +241,10 @@ export default function Player({ station }: { station: Station | null }) {
       hls.attachMedia(a);
       hls.on(Hls.Events.ERROR, () => scheduleRetry(token));
     } else {
-      hardStopAudio(); // pastikan koneksi lama putus total
-      a.src = src;
+      // putuskan koneksi lama total sebelum set src baru
+      hardStopAudio();
       a.preload = "none";
+      a.src = src;
       a.load();
       void attemptPlay();
     }
@@ -263,75 +255,47 @@ export default function Player({ station }: { station: Station | null }) {
     const a = audioRef.current;
     if (!a || !station) return;
 
-    // token baru untuk mencegah race
     const token = ++loadTokenRef.current;
 
-    // reset state & koneksi lama
-    setNow("");
-    setErr("");
-    setNeedTap(false);
-    setIsPlaying(false);
-    setLoadingStream(true);
-    usedProxyRef.current = false;
-    retryCountRef.current = 0;
+    setNow(""); setErr(""); setNeedTap(false);
+    setIsPlaying(false); setLoadingStream(true);
+    usedProxyRef.current = false; retryCountRef.current = 0;
 
-    clearRetry();
-    clearWatchdog();
-    stopNowPolling();
-    destroyHls();
-    hardStopAudio();
+    clearRetry(); clearWatchdog(); stopNowPolling();
+    destroyHls(); hardStopAudio();
 
     const raw = station.url_resolved || station.url || "";
     const src = buildSrc(raw);
 
-    // mulai koneksi baru
     loadAndPlay(src, token);
     startNowPolling(token);
 
-    // cleanup jika station berubah lagi
     return () => {
       if (token !== loadTokenRef.current) return;
-      clearRetry();
-      clearWatchdog();
-      stopNowPolling();
-      destroyHls();
-      // jangan hardStop di sini: biarkan pemuatan baru yang urus
+      clearRetry(); clearWatchdog(); stopNowPolling(); destroyHls();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [station?.stationuuid]);
 
   // resume saat online / tab aktif lagi
   useEffect(() => {
-    const online = () => {
-      if (!station) return;
-      scheduleRetry(loadTokenRef.current);
-    };
-    const visible = () => {
-      if (!document.hidden && audioRef.current && !audioRef.current.paused && !needTap) {
-        attemptPlay();
-      }
-    };
+    const online = () => { if (!station) return; scheduleRetry(loadTokenRef.current); };
+    const visible = () => { if (!document.hidden && audioRef.current && !audioRef.current.paused && !needTap) attemptPlay(); };
     window.addEventListener("online", online);
     document.addEventListener("visibilitychange", visible);
-    return () => {
-      window.removeEventListener("online", online);
-      document.removeEventListener("visibilitychange", visible);
-    };
+    return () => { window.removeEventListener("online", online); document.removeEventListener("visibilitychange", visible); };
   }, [needTap, station?.stationuuid]);
 
   const togglePlay = async () => {
     const a = audioRef.current;
     if (!a) return;
-    if (a.paused) {
-      await attemptPlay();
-    } else {
-      a.pause();
-    }
+    if (a.paused) await attemptPlay();
+    else a.pause();
   };
 
   return (
     <>
-      {/* Sheet detail (tanpa audio controls kedua) */}
+      {/* Sheet detail (tanpa audio kedua) */}
       {expanded && station && (
         <div className="fixed inset-0 z-[70] bg-black/70 sm:backdrop-blur" onClick={()=>setExpanded(false)}>
           <div
@@ -362,36 +326,38 @@ export default function Player({ station }: { station: Station | null }) {
       <div className="fixed left-0 right-0 z-[60] bottom-3">
         <div className="mx-auto max-w-5xl">
           <div className="mx-3 rounded-2xl bg-neutral-900/95 sm:backdrop-blur border border-neutral-800 px-3 py-2">
-            {station ? (
-              <div className="flex items-center gap-3">
-                <img
-                  src={station.favicon || "/icon-192.png"}
-                  alt=""
-                  className="w-8 h-8 rounded"
-                  loading="lazy"
-                  decoding="async"
-                  onError={(e:any)=>{e.currentTarget.src="/icon-192.png"}}
-                />
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold truncate">{station.name}</div>
-                  <div className="text-xs text-neutral-400 truncate">
-                    {loadingStream ? "Menghubungkan…" : (now || station.country)}
+            <div className="flex items-center gap-3">
+              {station ? (
+                <>
+                  <img
+                    src={station.favicon || "/icon-192.png"}
+                    alt=""
+                    className="w-8 h-8 rounded"
+                    loading="lazy"
+                    decoding="async"
+                    onError={(e:any)=>{e.currentTarget.src="/icon-192.png"}}
+                  />
+                  <div className="min-w-0">
+                    <div className="text-sm font-semibold truncate">{station.name}</div>
+                    <div className="text-xs text-neutral-400 truncate">
+                      {loadingStream ? "Menghubungkan…" : (now || station.country)}
+                    </div>
                   </div>
-                </div>
-                <button
-                  onClick={togglePlay}
-                  className="ml-auto px-3 py-2 rounded-lg bg-white text-black text-sm"
-                  disabled={loadingStream && !needTap}
-                >
-                  {needTap ? "Putar" : (loadingStream ? "Memuat…" : (isPlaying ? "Pause" : "Play"))}
-                </button>
-                <button onClick={()=>setExpanded(true)} className="px-3 py-2 rounded-lg bg-neutral-800 text-sm">
-                  Detail
-                </button>
-              </div>
-            ) : (
-              <div className="text-center text-sm text-neutral-400">Pilih stasiun untuk mulai memutar</div>
-            )}
+                  <button
+                    onClick={togglePlay}
+                    className="ml-auto px-3 py-2 rounded-lg bg-white text-black text-sm"
+                    disabled={loadingStream && !needTap}
+                  >
+                    {needTap ? "Putar" : (loadingStream ? "Memuat…" : (isPlaying ? "Pause" : "Play"))}
+                  </button>
+                  <button onClick={()=>setExpanded(true)} className="px-3 py-2 rounded-lg bg-neutral-800 text-sm">
+                    Detail
+                  </button>
+                </>
+              ) : (
+                <div className="text-center w-full text-sm text-neutral-400">Pilih stasiun untuk mulai memutar</div>
+              )}
+            </div>
           </div>
         </div>
       </div>
