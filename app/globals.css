@@ -2,30 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-/* --- Safety: cegah halaman meluber ke kanan --- */
+/* ---- Safety agar tidak "melebar ke kanan" di Android ---- */
 html, body {
   height: 100%;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;          /* penting untuk Android */
+  overflow-x: hidden;               /* penting: cegah scroll horizontal */
   -webkit-text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
 }
 
 body { @apply bg-black text-white antialiased; }
 
-/* Input >=16px supaya Chrome Android tidak auto-zoom */
+/* Chrome Android auto-zoom jika font-size <16px saat fokus input → paksa >=16px */
 input, select, textarea, button { font-size: 16px; }
 
-/* Gambar tidak boleh melebar melebihi container */
+/* Gambar jangan meluber */
 img { max-width: 100%; height: auto; display: block; }
 
-/* Utility yang kita pakai */
+/* Utilities yang dipakai komponen */
 .button { @apply px-4 py-3 rounded-lg font-medium; }
 .card   { @apply bg-neutral-900 rounded-2xl p-4; }
 .input  { @apply w-full bg-neutral-900 rounded-xl px-4 py-3 outline-none placeholder:text-neutral-500; }
 
-/* Area aman untuk notch/pill */
+/* Safe-area notch */
 :root {
   --safe-top: env(safe-area-inset-top);
   --safe-bottom: env(safe-area-inset-bottom);
