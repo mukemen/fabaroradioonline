@@ -1,31 +1,58 @@
 // app/api/stations/route.ts
 import { NextResponse } from "next/server";
 
-// Pakai Node.js runtime biar bebas fetch ke luar
+// Pakai Node runtime (bukan Edge) biar bebas fetch keluar
 export const runtime = "nodejs";
-
-// Jangan cache (selalu fresh)
+// Selalu fresh
 export const dynamic = "force-dynamic";
+
+const MIRRORS = [
+  "https://de1.api.radio-browser.info",
+  "https://de2.api.radio-browser.info",
+  "https://nl1.api.radio-browser.info",
+  "https://at1.api.radio-browser.info",
+  "https://gb1.api.radio-browser.info",
+  "https://us1.api.radio-browser.info",
+  "https://ca1.api.radio-browser.info",
+];
 
 function withTimeout<T>(p: Promise<T>, ms = 12000) {
   return new Promise<T>((resolve, reject) => {
     const t = setTimeout(() => reject(new Error("timeout")), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(t);
+        reject(e);
+      },
+    );
   });
 }
 
-// Endpoint Radio Browser yang cepat (bisa diganti mirror lain kalau perlu)
-const RB = "https://de1.api.radio-browser.info/json/stations/search";
+async function queryMirror(base: string, qs: string) {
+  const url = `${base}/json/stations/search?${qs}`;
+  const res = await withTimeout(
+    fetch(url, {
+      cache: "no-store",
+      // sebagian mirror menolak UA kosong
+      headers: { "User-Agent": "fabaro/1.0 (+https://fabaroradioonline.vercel.app)" },
+    }),
+    12000,
+  );
+  if (!("ok" in (res as any)) || !(res as any).ok) throw new Error("upstream not ok");
+  return (res as Response).json();
+}
 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const q = searchParams.get("q")?.trim() || "";
-    const country = searchParams.get("country")?.trim() || "";
-    const tag = searchParams.get("tag")?.trim() || "";
+    const q = (searchParams.get("q") || "").trim();
+    const country = (searchParams.get("country") || "").trim();
+    const tag = (searchParams.get("tag") || "").trim();
 
-    // Radio Browser query
-    // Doc: https://api.radio-browser.info/
     const params = new URLSearchParams();
     if (q) params.set("name", q);
     if (country) params.set("country", country);
@@ -35,24 +62,33 @@ export async function GET(req: Request) {
     params.set("reverse", "true");
     params.set("limit", "200");
 
-    // fetch dengan timeout
-    const res = await withTimeout(fetch(`${RB}?${params.toString()}`, {
-      // Supaya Vercel tidak men-cache
-      cache: "no-store",
-      headers: { "User-Agent": "fabaro/1.0 (https://fabaroradioonline.vercel.app)" }
-    }));
-
-    if (!("ok" in (res as any)) || !(res as any).ok) {
-      return NextResponse.json({ error: "upstream_failed" }, { status: 502 });
+    // Coba beberapa mirror sampai berhasil
+    let data: any[] | null = null;
+    let lastErr: unknown = null;
+    for (const m of MIRRORS) {
+      try {
+        const json = await queryMirror(m, params.toString());
+        if (Array.isArray(json)) {
+          data = json;
+          break;
+        }
+      } catch (e) {
+        lastErr = e;
+        continue;
+      }
     }
 
-    const data = await (res as Response).json();
+    if (!data) {
+      console.warn("RadioBrowser mirrors failed:", lastErr);
+      // Balikkan array kosong supaya UI tidak menggantung
+      return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
+    }
 
-    // Normalisasi minimal agar front-end aman
-    const mapped = (Array.isArray(data) ? data : []).map((s: any) => ({
+    // Normalisasi
+    const mapped = data.map((s: any) => ({
       stationuuid: s.stationuuid,
       name: s.name || s.name_translated || "Unknown",
-      favicon: s.favicon || s.homepage || "",
+      favicon: s.favicon || "",
       tags: s.tags || "",
       country: s.country || "",
       url: s.url || "",
@@ -62,13 +98,9 @@ export async function GET(req: Request) {
       bitrate: Number(s.bitrate || 0),
     }));
 
-    return NextResponse.json(mapped, {
-      headers: { "Cache-Control": "no-store" }
-    });
-  } catch (e: any) {
-    // Jangan bikin FE nunggu; selalu balas array kosong + status 200 agar UI lanjut
-    return NextResponse.json([], {
-      headers: { "Cache-Control": "no-store" }
-    });
+    return NextResponse.json(mapped, { headers: { "Cache-Control": "no-store" } });
+  } catch (e) {
+    // Jangan biarkan FE menunggu—tetap balas
+    return NextResponse.json([], { headers: { "Cache-Control": "no-store" } });
   }
 }
