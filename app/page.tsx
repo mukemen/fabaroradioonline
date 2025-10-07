@@ -7,7 +7,7 @@ import RegisterSW from "./components/RegisterSW";
 import InstallPrompt from "./components/InstallPrompt";
 import InstallButton from "./components/InstallButton";
 
-// ====== DATA: GENRE & NEGARA (seperti versi sebelumnya) ======
+// ====== DATA: GENRE & NEGARA ======
 const GENRES = [
   "top 40","hits","pop","rock","alternative","indie","metal","punk",
   "hip-hop","rap","r&b","soul","dance","edm","house","trance","techno",
@@ -60,13 +60,15 @@ export default function Home() {
   const [stations, setStations] = useState<Station[]>([]);
   const [current, setCurrent] = useState<Station | null>(null);
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [favorites, setFavorites] = useState<Record<string, boolean>>({});
   const [showFavs, setShowFavs] = useState(false);
 
   useEffect(() => {
     try { const raw = localStorage.getItem("fabaro_favs"); if (raw) setFavorites(JSON.parse(raw)); } catch {}
     try { const last = localStorage.getItem("fabaro_last_station"); if (last) setCurrent(JSON.parse(last)); } catch {}
-    fetchStations();
+    fetchStations(); // initial load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const saveFavs = (obj: Record<string, boolean>) => {
@@ -80,16 +82,37 @@ export default function Home() {
     saveFavs(obj);
   };
 
+  // === PENTING: try/finally supaya loading pasti berhenti ===
   const fetchStations = async () => {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (q) params.set("q", q);
-    if (country) params.set("country", country);
-    if (genre) params.set("tag", genre);
-    const res = await fetch(`/api/stations?${params.toString()}`, { cache: "no-store" });
-    const data = await res.json();
-    setStations(data.slice(0, 80));
-    setLoading(false);
+    try {
+      setErrorMsg(""); // reset error
+      const params = new URLSearchParams();
+      if (q) params.set("q", q);
+      if (country) params.set("country", country);
+      if (genre) params.set("tag", genre);
+
+      const res = await fetch(`/api/stations?${params.toString()}`, { cache: "no-store" });
+
+      if (!res.ok) {
+        setStations([]);
+        setErrorMsg("Gagal memuat daftar stasiun. Coba lagi sebentar.");
+        return;
+      }
+
+      const data = await res.json();
+      const list = (Array.isArray(data) ? data : []).slice(0, 80);
+      setStations(list);
+      if (list.length === 0) {
+        setErrorMsg("Tidak ada hasil. Ubah kata kunci/negara/genre lalu cari lagi.");
+      }
+    } catch (err) {
+      console.warn("stations API error:", err);
+      setStations([]);
+      setErrorMsg("Jaringan sedang lambat atau server sibuk. Coba lagi.");
+    } finally {
+      setLoading(false); // <-- spinner pasti berhenti
+    }
   };
 
   const onPlay = (s: Station) => {
@@ -163,6 +186,11 @@ export default function Home() {
             Favorit
           </button>
         </div>
+
+        {/* Pesan error ringan */}
+        {!!errorMsg && (
+          <div className="text-sm text-red-400">{errorMsg}</div>
+        )}
       </section>
 
       {/* LIST */}
