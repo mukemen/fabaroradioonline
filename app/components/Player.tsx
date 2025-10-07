@@ -8,58 +8,42 @@ export default function Player({ station }: { station: Station | null }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const hlsRef = useRef<Hls | null>(null);
 
+  // UI states
   const [now, setNow] = useState("");
-  const [err, setErr] = useState("");
   const [needTap, setNeedTap] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [loadingStream, setLoadingStream] = useState(false);
 
-  // kontrol & status
+  // Volume (0..1) — persist to localStorage
+  const [volume, setVolume] = useState<number>(() => {
+    if (typeof window === "undefined") return 1;
+    const v = Number(localStorage.getItem("fabaro_vol"));
+    return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 1;
+  });
+
+  // Sleep timer
+  const [sleepLeft, setSleepLeft] = useState<number>(0); // detik tersisa
+  const [timerOpen, setTimerOpen] = useState(false);
+  const sleepTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // control & status
   const usedProxyRef = useRef(false);
   const retryCountRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // watchdog progress
-  const watchdogRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastTimeRef = useRef(0);
-  const lastTickRef = useRef(0);
-
-  // token mencegah race saat ganti cepat
   const loadTokenRef = useRef(0);
-
-  // polling now playing
   const nowAbortRef = useRef<AbortController | null>(null);
 
-  // wake lock
-  const wakeRef = useRef<any>(null);
-
-  // Host yang dikenal sering CORS/putus → selalu via proxy
-  const FORCE_PROXY = new Set<string>([
-    // contoh: "stream-uk1.radiopanel.com", "live.radio.xxx"
-  ]);
-
+  // ===== helpers =====
   const needsProxy = (u: string) =>
     typeof window !== "undefined" &&
     window.location.protocol === "https:" &&
     u?.startsWith("http://");
 
-  const hostFrom = (u: string) => { try { return new URL(u).hostname; } catch { return ""; } };
+  const buildSrc = (u: string, forceProxy = false) =>
+    forceProxy || needsProxy(u) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
 
-  const buildSrc = (u: string, forceProxy = false) => {
-    const must = FORCE_PROXY.has(hostFrom(u));
-    return (forceProxy || must || needsProxy(u)) ? `/api/proxy?url=${encodeURIComponent(u)}` : u;
-  };
-
-  const clearRetry = () => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    retryTimerRef.current = null;
-  };
-
-  const clearWatchdog = () => {
-    if (watchdogRef.current) clearInterval(watchdogRef.current);
-    watchdogRef.current = null;
-  };
+  const clearRetry = () => { if (retryTimerRef.current) clearTimeout(retryTimerRef.current); retryTimerRef.current = null; };
 
   const destroyHls = () => {
     try { hlsRef.current?.detachMedia(); } catch {}
@@ -76,97 +60,28 @@ export default function Player({ station }: { station: Station | null }) {
     try { a.load(); } catch {}
   };
 
-  const requestWake = async () => {
-    try {
-      // @ts-ignore
-      if (navigator.wakeLock) {
-        wakeRef.current = await (navigator as any).wakeLock.request("screen");
-      }
-    } catch {}
-  };
-  const releaseWake = async () => {
-    try { await wakeRef.current?.release?.(); } catch {} finally { wakeRef.current = null; }
-  };
-
-  const setMediaSession = (title?: string) => {
-    try {
-      if ("mediaSession" in navigator) {
-        (navigator as any).mediaSession.metadata = new (window as any).MediaMetadata({
-          title: title || station?.name || "FABARO Radio",
-          artist: station?.country || "",
-          album: station?.tags || "",
-          artwork: [{ src: station?.favicon || "/icon-192.png", sizes: "192x192", type: "image/png" }]
-        });
-        (navigator as any).mediaSession.setActionHandler("play", () => attemptPlay());
-        (navigator as any).mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
-      }
-    } catch {}
-  };
-
   const attemptPlay = async () => {
     const a = audioRef.current;
     if (!a) return;
     try {
       await a.play();
       setNeedTap(false);
-      await requestWake();
     } catch {
       setNeedTap(true);
     }
   };
 
-  // “nudge” kecil untuk melepas macet di beberapa browser
-  const nudge = () => {
-    const a = audioRef.current;
-    if (!a) return;
-    try { a.currentTime = Math.max(0, a.currentTime + 0.001); } catch {}
-  };
-
   const scheduleRetry = (token: number) => {
     if (token !== loadTokenRef.current) return;
-    const a = audioRef.current;
-    if (!a || !station) return;
-
-    nudge(); // coba bebaskan macet dulu
-
-    const backoffMs = Math.min(15000, 1000 * Math.pow(2, retryCountRef.current)); // 1,2,4,8,15s
+    const backoffMs = Math.min(15000, 1000 * Math.pow(2, retryCountRef.current)); // 1,2,4,8,15
     retryCountRef.current++;
     clearRetry();
-
     retryTimerRef.current = setTimeout(() => {
-      if (token !== loadTokenRef.current) return;
+      if (token !== loadTokenRef.current || !station) return;
       const raw = station.url_resolved || station.url || "";
-      if (retryCountRef.current >= 1) usedProxyRef.current = true; // pakai proxy setelah 1x gagal
+      if (retryCountRef.current >= 1) usedProxyRef.current = true;
       loadAndPlay(buildSrc(raw, usedProxyRef.current), token);
     }, backoffMs);
-  };
-
-  const startWatchdog = (token: number) => {
-    clearWatchdog();
-    const a = audioRef.current;
-    if (!a) return;
-    lastTimeRef.current = a.currentTime || 0;
-    lastTickRef.current = Date.now();
-
-    watchdogRef.current = setInterval(() => {
-      if (token !== loadTokenRef.current) return;
-      const aud = audioRef.current;
-      if (!aud || aud.paused) return;
-      const t = aud.currentTime;
-      const nowT = Date.now();
-      if (Math.abs(t - lastTimeRef.current) < 0.2 && nowT - lastTickRef.current > 20000) {
-        scheduleRetry(token);
-        lastTickRef.current = nowT;
-      } else if (Math.abs(t - lastTimeRef.current) >= 0.2) {
-        lastTimeRef.current = t;
-        lastTickRef.current = nowT;
-      }
-    }, 10000);
-  };
-
-  const stopNowPolling = () => {
-    try { nowAbortRef.current?.abort(); } catch {}
-    nowAbortRef.current = null;
   };
 
   const startNowPolling = (token: number) => {
@@ -185,7 +100,7 @@ export default function Player({ station }: { station: Station | null }) {
         if (!res.ok) return;
         const j = await res.json();
         if (token !== loadTokenRef.current) return;
-        if (j?.title) { setNow(j.title); setMediaSession(j.title); }
+        if (j?.title) setNow(j.title);
       } catch {}
     };
 
@@ -195,53 +110,37 @@ export default function Player({ station }: { station: Station | null }) {
     abort.signal.addEventListener("abort", () => clearInterval(id));
   };
 
+  const stopNowPolling = () => {
+    try { nowAbortRef.current?.abort(); } catch {}
+    nowAbortRef.current = null;
+  };
+
   const loadAndPlay = (src: string, token: number) => {
     const a = audioRef.current!;
     if (token !== loadTokenRef.current) return;
 
     setLoadingStream(true);
-    setErr("");
     clearRetry();
     destroyHls();
 
-    // bersihkan listener lama
-    a.oncanplay = a.onplaying = a.onpause = a.onstalled = a.onwaiting = a.onerror = a.oncanplaythrough = null;
-
-    // listener baru
-    a.oncanplay = () => { if (token === loadTokenRef.current) setLoadingStream(false); };
-    a.oncanplaythrough = () => { if (token === loadTokenRef.current) setLoadingStream(false); };
-    a.onplaying = () => {
-      if (token !== loadTokenRef.current) return;
-      setLoadingStream(false);
-      setNeedTap(false);
-      setIsPlaying(true);
-      setMediaSession(now || station?.name);
-      startWatchdog(token);
-    };
+    a.onplaying = () => { if (token === loadTokenRef.current) { setLoadingStream(false); setNeedTap(false); setIsPlaying(true); } };
     a.onpause = () => { if (token === loadTokenRef.current) setIsPlaying(false); };
     a.onstalled = () => scheduleRetry(token);
     a.onwaiting = () => scheduleRetry(token);
     a.onerror = () => scheduleRetry(token);
 
-    // pilih HLS atau direct
     if (src.includes(".m3u8") && Hls.isSupported()) {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: true,
         maxBufferLength: 6,
-        maxMaxBufferLength: 30,
         backBufferLength: 30,
-        fragLoadingRetryDelay: 800,
-        manifestLoadingRetryDelay: 800,
-        levelLoadingRetryDelay: 800,
-        autoStartLoad: true,
       });
       hlsRef.current = hls;
       hls.loadSource(src);
       hls.attachMedia(a);
       hls.on(Hls.Events.ERROR, () => scheduleRetry(token));
     } else {
-      // putuskan koneksi lama total sebelum set src baru
       hardStopAudio();
       a.preload = "none";
       a.src = src;
@@ -250,19 +149,24 @@ export default function Player({ station }: { station: Station | null }) {
     }
   };
 
-  // ganti stasiun → reset total & mulai koneksi baru
+  // ===== effects =====
+  // Sync volume to element & persist
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) a.volume = volume;
+    try { localStorage.setItem("fabaro_vol", String(volume)); } catch {}
+  }, [volume]);
+
+  // Change station
   useEffect(() => {
     const a = audioRef.current;
     if (!a || !station) return;
 
     const token = ++loadTokenRef.current;
-
-    setNow(""); setErr(""); setNeedTap(false);
-    setIsPlaying(false); setLoadingStream(true);
+    setNow(""); setNeedTap(false); setIsPlaying(false); setLoadingStream(true);
     usedProxyRef.current = false; retryCountRef.current = 0;
 
-    clearRetry(); clearWatchdog(); stopNowPolling();
-    destroyHls(); hardStopAudio();
+    clearRetry(); stopNowPolling(); destroyHls(); hardStopAudio();
 
     const raw = station.url_resolved || station.url || "";
     const src = buildSrc(raw);
@@ -272,12 +176,12 @@ export default function Player({ station }: { station: Station | null }) {
 
     return () => {
       if (token !== loadTokenRef.current) return;
-      clearRetry(); clearWatchdog(); stopNowPolling(); destroyHls();
+      clearRetry(); stopNowPolling(); destroyHls();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [station?.stationuuid]);
 
-  // resume saat online / tab aktif lagi
+  // Resume when tab visible/online
   useEffect(() => {
     const online = () => { if (!station) return; scheduleRetry(loadTokenRef.current); };
     const visible = () => { if (!document.hidden && audioRef.current && !audioRef.current.paused && !needTap) attemptPlay(); };
@@ -285,6 +189,41 @@ export default function Player({ station }: { station: Station | null }) {
     document.addEventListener("visibilitychange", visible);
     return () => { window.removeEventListener("online", online); document.removeEventListener("visibilitychange", visible); };
   }, [needTap, station?.stationuuid]);
+
+  // ===== Sleep timer =====
+  const stopSleepTimer = () => {
+    if (sleepTickRef.current) clearInterval(sleepTickRef.current);
+    sleepTickRef.current = null;
+    setSleepLeft(0);
+  };
+
+  const startSleepTimer = (minutes: number) => {
+    const total = Math.max(1, Math.round(minutes)) * 60; // detik
+    setSleepLeft(total);
+    if (sleepTickRef.current) clearInterval(sleepTickRef.current);
+    sleepTickRef.current = setInterval(() => {
+      setSleepLeft((s) => {
+        if (s <= 1) {
+          // waktu habis → pause
+          try { audioRef.current?.pause(); } catch {}
+          if (sleepTickRef.current) clearInterval(sleepTickRef.current);
+          sleepTickRef.current = null;
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+  };
+
+  useEffect(() => {
+    return () => { if (sleepTickRef.current) clearInterval(sleepTickRef.current); };
+  }, []);
+
+  const fmtMMSS = (sec: number) => {
+    const m = Math.floor(sec / 60).toString().padStart(2, "0");
+    const s = Math.floor(sec % 60).toString().padStart(2, "0");
+    return `${m}:${s}`;
+  };
 
   const togglePlay = async () => {
     const a = audioRef.current;
@@ -295,9 +234,9 @@ export default function Player({ station }: { station: Station | null }) {
 
   return (
     <>
-      {/* Sheet detail (tanpa audio kedua) */}
+      {/* Sheet detail sederhana */}
       {expanded && station && (
-        <div className="fixed inset-0 z-[70] bg-black/70 sm:backdrop-blur" onClick={()=>setExpanded(false)}>
+        <div className="fixed inset-0 z-[70] bg-black/70" onClick={()=>setExpanded(false)}>
           <div
             className="absolute left-0 right-0 bottom-0 rounded-t-2xl bg-neutral-900 p-4 space-y-3"
             style={{ paddingBottom: `calc(1rem + env(safe-area-inset-bottom))` }}
@@ -307,7 +246,51 @@ export default function Player({ station }: { station: Station | null }) {
             <div className="font-semibold">{station.name}</div>
             <div className="text-xs text-neutral-400">{station.country} • {station.tags}</div>
             {now && <div className="text-sm text-green-300">Now Playing: {now}</div>}
-            {err && <div className="text-red-400 text-sm">{err}</div>}
+
+            {/* Volume + Timer in sheet */}
+            <div className="grid gap-3">
+              <div>
+                <div className="text-xs mb-1">Volume: {Math.round(volume * 100)}%</div>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={volume}
+                  onChange={(e)=>setVolume(Number(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-neutral-400">Sleep Timer:</span>
+                {sleepLeft > 0 ? (
+                  <>
+                    <span className="text-sm">{fmtMMSS(sleepLeft)}</span>
+                    <button onClick={stopSleepTimer} className="px-3 py-1.5 rounded bg-neutral-800 text-sm">Batal</button>
+                  </>
+                ) : (
+                  <>
+                    <button onClick={()=>startSleepTimer(15)} className="px-3 py-1.5 rounded bg-neutral-800 text-sm">15m</button>
+                    <button onClick={()=>startSleepTimer(30)} className="px-3 py-1.5 rounded bg-neutral-800 text-sm">30m</button>
+                    <button onClick={()=>startSleepTimer(60)} className="px-3 py-1.5 rounded bg-neutral-800 text-sm">60m</button>
+                    <button onClick={()=>startSleepTimer(120)} className="px-3 py-1.5 rounded bg-neutral-800 text-sm">120m</button>
+                    <button
+                      onClick={()=>{
+                        const v = prompt("Sleep timer (menit):", "20");
+                        if (!v) return;
+                        const n = Number(v);
+                        if (Number.isFinite(n) && n > 0) startSleepTimer(n);
+                      }}
+                      className="px-3 py-1.5 rounded bg-neutral-800 text-sm"
+                    >
+                      Custom…
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center gap-2">
               <button
                 onClick={togglePlay}
@@ -325,44 +308,102 @@ export default function Player({ station }: { station: Station | null }) {
       {/* Mini player */}
       <div className="fixed left-0 right-0 z-[60] bottom-3">
         <div className="mx-auto max-w-5xl">
-          <div className="mx-3 rounded-2xl bg-neutral-900/95 sm:backdrop-blur border border-neutral-800 px-3 py-2">
-            <div className="flex items-center gap-3">
-              {station ? (
-                <>
-                  <img
-                    src={station.favicon || "/icon-192.png"}
-                    alt=""
-                    className="w-8 h-8 rounded"
-                    loading="lazy"
-                    decoding="async"
-                    onError={(e:any)=>{e.currentTarget.src="/icon-192.png"}}
-                  />
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">{station.name}</div>
-                    <div className="text-xs text-neutral-400 truncate">
-                      {loadingStream ? "Menghubungkan…" : (now || station.country)}
-                    </div>
+          <div className="mx-3 rounded-2xl bg-neutral-900/95 border border-neutral-800 px-3 py-2">
+            {station ? (
+              <div className="flex items-center gap-3">
+                <img
+                  src={station.favicon || "/icon-192.png"}
+                  alt=""
+                  className="w-8 h-8 rounded"
+                  loading="lazy"
+                  decoding="async"
+                  onError={(e:any)=>{e.currentTarget.src="/icon-192.png"}}
+                />
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold truncate">{station.name}</div>
+                  <div className="text-xs text-neutral-400 truncate">
+                    {loadingStream ? "Menghubungkan…" : (now || station.country)}
                   </div>
-                  <button
-                    onClick={togglePlay}
-                    className="ml-auto px-3 py-2 rounded-lg bg-white text-black text-sm"
-                    disabled={loadingStream && !needTap}
-                  >
-                    {needTap ? "Putar" : (loadingStream ? "Memuat…" : (isPlaying ? "Pause" : "Play"))}
-                  </button>
-                  <button onClick={()=>setExpanded(true)} className="px-3 py-2 rounded-lg bg-neutral-800 text-sm">
-                    Detail
-                  </button>
-                </>
-              ) : (
-                <div className="text-center w-full text-sm text-neutral-400">Pilih stasiun untuk mulai memutar</div>
-              )}
-            </div>
+                </div>
+
+                {/* Volume (ikon + slider muncul saat diklik) */}
+                <div className="hidden sm:flex items-center gap-2 ml-auto">
+                  <span className="text-xs w-10 text-right">{Math.round(volume*100)}%</span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={volume}
+                    onChange={(e)=>setVolume(Number(e.target.value))}
+                    className="w-28"
+                    aria-label="Volume"
+                  />
+                </div>
+
+                <button
+                  onClick={togglePlay}
+                  className="ml-auto sm:ml-0 px-3 py-2 rounded-lg bg-white text-black text-sm"
+                  disabled={loadingStream && !needTap}
+                >
+                  {needTap ? "Putar" : (loadingStream ? "Memuat…" : (isPlaying ? "Pause" : "Play"))}
+                </button>
+
+                {/* Timer tombol ringkas */}
+                <button
+                  onClick={()=>setTimerOpen(v=>!v)}
+                  className="px-3 py-2 rounded-lg bg-neutral-800 text-sm"
+                  title="Sleep Timer"
+                >
+                  {sleepLeft>0 ? `⏱ ${fmtMMSS(sleepLeft)}` : "Timer"}
+                </button>
+
+                <button onClick={()=>setExpanded(true)} className="px-3 py-2 rounded-lg bg-neutral-800 text-sm">
+                  Detail
+                </button>
+              </div>
+            ) : (
+              <div className="text-center text-sm text-neutral-400">Pilih stasiun untuk mulai memutar</div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Audio tunggal (hidden) */}
+      {/* Popover timer kecil di mini-player (mobile friendly) */}
+      {timerOpen && (
+        <div className="fixed inset-0 z-[65]" onClick={()=>setTimerOpen(false)}>
+          <div className="absolute right-4 bottom-[72px] bg-neutral-900 border border-neutral-800 rounded-xl p-2 w-56"
+               onClick={(e)=>e.stopPropagation()}>
+            <div className="text-xs text-neutral-400 px-2 pb-1">Sleep Timer</div>
+            {sleepLeft>0 ? (
+              <div className="flex items-center gap-2 px-2 pb-2">
+                <span className="text-sm">{fmtMMSS(sleepLeft)}</span>
+                <button onClick={()=>{stopSleepTimer(); setTimerOpen(false);}} className="ml-auto px-3 py-1.5 rounded bg-neutral-800 text-sm">Batal</button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-4 gap-2 px-2 pb-2">
+                {[15,30,60,120].map(m=>(
+                  <button key={m} onClick={()=>{startSleepTimer(m); setTimerOpen(false);}}
+                          className="px-2 py-1.5 rounded bg-neutral-800 text-sm">{m}m</button>
+                ))}
+                <button
+                  onClick={()=>{
+                    const v = prompt("Sleep timer (menit):", "20");
+                    if (!v) return;
+                    const n = Number(v);
+                    if (Number.isFinite(n) && n>0) { startSleepTimer(n); setTimerOpen(false); }
+                  }}
+                  className="col-span-4 px-2 py-1.5 rounded bg-neutral-800 text-sm"
+                >
+                  Custom…
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Audio element tunggal (hidden) */}
       <audio ref={audioRef} className="hidden" playsInline preload="none" />
     </>
   );
